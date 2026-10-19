@@ -40,7 +40,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<CardViewModel> Cards { get; } = new();
 
-    /// <summary>"0.3": major.minor of the assembly version (Directory.Build.props).</summary>
+    /// <summary>"0.4": major.minor of the assembly version (Directory.Build.props).</summary>
     public static string VersionText { get; } = typeof(MainViewModel).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}" : "";
 
     public string VersionLabel => $"v{VersionText}";

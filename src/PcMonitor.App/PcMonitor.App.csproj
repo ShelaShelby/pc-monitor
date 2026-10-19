@@ -12,6 +12,8 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <Product>pc-monitor</Product>
+    <!-- Logo drawn by tools/make-icon.py; exe icon here, window icon via the resource below. -->
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -32,5 +34,6 @@
   <ItemGroup>
     <ProjectReference Include="..\PcMonitor.Core\PcMonitor.Core.csproj" />
     <Using Include="System.IO" />
+    <Resource Include="..\..\assets\app.ico" Link="app.ico" />
   </ItemGroup>
 </Project>

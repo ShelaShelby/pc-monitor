@@ -86,12 +86,91 @@ jobs:
           if (Test-Path $log) { Get-Content $log }
           if (-not (Test-Path $png)) { throw "real provider: no screenshot (exit $($p.ExitCode))" }
 
+      - name: Build installer (Inno Setup)
+        id: installer
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $iscc = $null
+          foreach ($attempt in 1..3) {
+            $iscc = @(
+              (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source,
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+            if ($iscc) { break }
+            Write-Host "ISCC.exe not found, installing Inno Setup with choco (attempt $attempt)"
+            choco install innosetup -y --no-progress
+          }
+          if (-not $iscc) { throw "ISCC.exe not available after 3 attempts" }
+          Write-Host "Using $iscc"
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if (-not $version) { throw "Version not found in Directory.Build.props" }
+          & $iscc "/DAppVersion=$version" installer/pc-monitor.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          $setup = "artifacts/installer/pc-monitor-setup.exe"
+          if (-not (Test-Path $setup)) { throw "pc-monitor-setup.exe missing" }
+          Write-Host "pc-monitor-setup.exe: $((Get-Item $setup).Length) bytes, version $version"
+
+      - name: Test installer (silent install / uninstall, app never launched)
+        if: steps.installer.outcome == 'success'
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path "artifacts/installer/pc-monitor-setup.exe").Path
+          $desktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "PC Monitor.lnk"
+          $startLnk = Join-Path ([Environment]::GetFolderPath("Programs")) "PC Monitor.lnk"
+
+          function Install([string]$dir, [string]$tasks) {
+            $a = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`"", "/TASKS=`"$tasks`"", "/LOG=`"$dir-setup.log`"")
+            $p = Start-Process -FilePath $setup -ArgumentList $a -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content "$dir-setup.log" -ErrorAction SilentlyContinue; throw "setup exit $($p.ExitCode)" }
+          }
+          function Uninstall([string]$dir) {
+            $p = Start-Process -FilePath (Join-Path $dir "unins000.exe") -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
+            # The uninstaller hands over to a copy of itself in %TEMP%; wait until it has finished.
+            $deadline = (Get-Date).AddSeconds(120)
+            while ((Test-Path (Join-Path $dir "unins000.exe")) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+            Start-Sleep -Seconds 2
+          }
+          function Check([bool]$ok, [string]$what) {
+            if (-not $ok) { throw "FAIL: $what" }
+            Write-Host "ok: $what"
+          }
+
+          # Run 1: desktop shortcut task ticked.
+          $dir = Join-Path $env:RUNNER_TEMP "pcm-install-1"
+          Install $dir "desktopicon"
+          Check (Test-Path (Join-Path $dir "pc-monitor.exe")) "exe installed in $dir"
+          Check (Test-Path $desktopLnk) "desktop shortcut exists"
+          Check (Test-Path $startLnk) "Start Menu shortcut exists"
+          Set-Content (Join-Path $dir "settings.json") "{}"
+          Set-Content (Join-Path $dir "pc-monitor.log") "x"
+          Uninstall $dir
+          Check (-not (Test-Path (Join-Path $dir "pc-monitor.exe"))) "exe removed"
+          Check (-not (Test-Path (Join-Path $dir "unins000.exe"))) "uninstaller removed"
+          Check (-not (Test-Path (Join-Path $dir "settings.json"))) "settings.json removed"
+          Check (-not (Test-Path (Join-Path $dir "pc-monitor.log"))) "pc-monitor.log removed"
+          Check (-not (Test-Path $desktopLnk)) "desktop shortcut removed"
+          Check (-not (Test-Path $startLnk)) "Start Menu shortcut removed"
+
+          # Run 2: no tasks, so no desktop shortcut.
+          $dir = Join-Path $env:RUNNER_TEMP "pcm-install-2"
+          Install $dir ""
+          Check (Test-Path (Join-Path $dir "pc-monitor.exe")) "exe installed in $dir"
+          Check (-not (Test-Path $desktopLnk)) "no desktop shortcut with /TASKS=`"`""
+          Check (Test-Path $startLnk) "Start Menu shortcut exists"
+          Uninstall $dir
+          Check (-not (Test-Path (Join-Path $dir "pc-monitor.exe"))) "exe removed"
+          Check (-not (Test-Path $startLnk)) "Start Menu shortcut removed"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pc-monitor-${{ github.sha }}
           path: |
             artifacts/publish/pc-monitor.exe
+            artifacts/installer/pc-monitor-setup.exe
             artifacts/shots
             artifacts/test-results
 
@@ -116,14 +195,19 @@ jobs:
         run: |
           set -e
           cp artifacts/publish/pc-monitor.exe pc-monitor.exe
+          assets=(pc-monitor.exe)
+          if [ -f artifacts/installer/pc-monitor-setup.exe ]; then
+            cp artifacts/installer/pc-monitor-setup.exe pc-monitor-setup.exe
+            assets+=(pc-monitor-setup.exe)
+          fi
           if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release delete latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
           fi
           git push --delete origin refs/tags/latest 2>/dev/null || true
-          gh release create latest pc-monitor.exe \
+          gh release create latest "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "latest" \
-            --notes "pc-monitor 0.3 built from ${GITHUB_SHA}. Windows 11 x64, self-contained single exe (asks for administrator rights). See README.md and OWNER-TODO.md." \
+            --notes "pc-monitor 0.4 built from ${GITHUB_SHA}. Windows 11 x64. pc-monitor-setup.exe = installer (per-user, Start Menu + optional desktop shortcut); pc-monitor.exe = portable self-contained exe. Both unsigned; the app asks for administrator rights. See README.md and OWNER-TODO.md." \
             --latest
           gh release view latest --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,assets

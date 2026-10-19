@@ -3,8 +3,10 @@
 1. **Install PawnIO** (needed for CPU temperature/clocks/power, motherboard fans and temperatures,
    and RAM DIMM temperatures): go to https://pawnio.eu, download the installer, run it, reboot
    if it asks. Then press **Recheck** in the app's banner (or restart the app).
-2. **Get the exe**: GitHub → this repo → Releases → `latest` → download `pc-monitor.exe`.
-   Windows SmartScreen will warn because the exe is not code-signed: "More info" → "Run anyway".
+2. **Install**: GitHub → this repo → Releases → `latest` → download `pc-monitor-setup.exe`, run it, keep
+   "Create a desktop shortcut" ticked. (Portable: `pc-monitor.exe` from the same release.)
+   **Neither the installer nor the exe is code-signed**, so Windows SmartScreen (and the browser download)
+   warns: "More info" → "Run anyway". Removing the warning needs a code-signing certificate (owner decision/cost).
 3. **Accept the UAC prompt** each start (the app needs administrator rights for sensors).
    Optional autostart: Task Scheduler → Create Task → "Run with highest privileges",
    trigger "At log on", action = path to `pc-monitor.exe` (avoids the prompt).

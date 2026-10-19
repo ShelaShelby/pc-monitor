@@ -5,7 +5,7 @@
         xmlns:c="clr-namespace:PcMonitor.App.Controls"
         xmlns:local="clr-namespace:PcMonitor.App"
         xmlns:core="clr-namespace:PcMonitor.Core;assembly=PcMonitor.Core"
-        Title="PC Monitor" Width="1600" Height="1000" MinWidth="480" MinHeight="360"
+        Title="PC Monitor" Icon="pack://application:,,,/app.ico" Width="1600" Height="1000" MinWidth="480" MinHeight="360"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         Topmost="{Binding AlwaysOnTop}"
         WindowStartupLocation="Manual" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">

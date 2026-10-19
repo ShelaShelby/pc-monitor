@@ -1,37 +1,35 @@
-# pc-monitor 0.3 "pack and polish" — report
+# pc-monitor 0.4 "logo and installer" — report
 
-## Fixed (from Alex's screenshots, 1593x997, Fit, specs on)
-1. **Fit wasted space**: cells were 430 px × tallest card. Now cards are packed into columns by their measured
-   height (masonry: card order kept, next card into the shortest column, ties leftmost; `LayoutFit.Pack`,
-   `Controls/MasonryPanel`). For 1..n columns scale = min(W / (cols × 430), H / tallest column), largest wins
-   (ties: fewer columns); columns are stretched to fill the full width (never below 430). 0.55 floor + vertical
-   scroll kept; 2/3/4 columns use the same packing. Auto unchanged. Tests: `LayoutFitTests` (7 cards at 1920x1080,
-   1024x768, 600x400, ties, fixed columns, scrollbar), numbers worked out in the comments.
-2. **Clipped text** (",162", "RPI", label touching value): the value sat in a `*` column squeezed by shared label
-   and min/max columns. Rows are now [label Auto, min 90, wraps above 170][gap 14][value Auto, min 64][gap 14]
-   [min/max, rest, right-aligned]. Min/max lines may only wrap between "min …" and "max …" (no trimming), and
-   show the unit once when both ends share it ("min 1,050 · max 1,199 RPM"). Hero value font 46 → 44.
-   Sizes live in `Core/CardMetrics.cs`. New WPF test project `PcMonitor.Ui.Tests` measures every label, value
-   and min/max half (fake data + widest values, °C/°F, normal/compact) with Segoe UI at 0.55, 0.68 and 1.0 and
-   checks it against its column (widths compared to each other, no fixed pixel values).
-3. **Blank Layout dropdown**: the standard white ComboBox showed the app's light text. Dark ComboBox style
-   (box, text, arrow, popup, hover, selection) in `Theme.xaml`. The first CI screenshot showed the record dump
-   ("LayoutOption { M…") in the closed box (DisplayMemberPath is not used there); now an ItemTemplate and
-   `LayoutOption.ToString() => Name`. Tests: SelectedItem text non-empty and equal to its name for each mode.
-4. **White title bar**: `DwmSetWindowAttribute` dark mode (20, fallback 19) after the handle exists; errors ignored.
-5. **NVMe shown as SCSI**: Interface now uses `MSFT_PhysicalDisk.BusType` (root\Microsoft\Windows\Storage,
-   matched by disk number); 17 → "NVMe". The Microsoft docs page was not reachable from the build machine, so
-   other BusType values keep what Win32_DiskDrive reports, as does any query failure (`StorageBus`, tests).
-6. Version 0.3 (toolbar and title bar).
+## Done
+1. **Logo** (original design): dark rounded square in the card colour (#181B22), open 270° gauge ring
+   (gap at the bottom) in the app's green (#3DDC84), pulse line across the centre in the accent blue (#4EA1FF).
+   Drawn by `tools/make-icon.py` (Python 3 + Pillow, each size drawn separately at 16× and box-filtered).
+   Committed outputs: `assets/logo.png` (512 px), `assets/app.ico` (16, 20, 24, 32, 40, 48, 64, 128, 256;
+   256 as PNG, the rest 32-bit BMP). ≤ 24 px: no border, thicker ring, no pulse line; 32–48 px: thicker pulse.
+   CI never regenerates them. Checked visually at 16, 32 and 256 px (one look).
+2. **Icon use**: exe (`ApplicationIcon`), window title bar/taskbar (`Window.Icon`, embedded resource),
+   installer and uninstaller (`SetupIconFile`), Apps and Features (`UninstallDisplayIcon` = exe), shortcuts (exe icon).
+3. **Installer** `installer/pc-monitor.iss` (Inno Setup 6), built on the Windows CI after publish. ISCC.exe is
+   looked up first, installed with choco only if missing (3 attempts, then the step is skipped).
+   Per-user (`PrivilegesRequired=lowest`), default `%LOCALAPPDATA%\Programs\PC Monitor`, changeable.
+   Pages: Welcome, folder, Tasks ("Create a desktop shortcut", ticked), Finish ("Run PC Monitor").
+   Start Menu shortcut always. AppVersion is passed by CI from `Directory.Build.props` (single source; the
+   script refuses to compile without it). Publisher ShelaShelby. Uninstall deletes `settings.json` and
+   `pc-monitor.log` next to the exe and also in `%LOCALAPPDATA%\PcMonitor` (where the app actually writes
+   them), then removes those folders if empty. Exe manifest unchanged (still asks for admin); "Run PC Monitor"
+   uses ShellExecute so the UAC prompt can appear. Output `pc-monitor-setup.exe`, attached to `latest`
+   next to the portable `pc-monitor.exe`.
+4. **CI installer test** (never launches the app): silent install with `/TASKS=desktopicon` into a temp
+   folder → exe, desktop .lnk, Start Menu .lnk exist; silent uninstall → exe, uninstaller, settings.json,
+   pc-monitor.log and both shortcuts gone. Second install with `/TASKS=""` → no desktop .lnk, Start Menu
+   .lnk present; uninstalled again.
+5. Version 0.4 (toolbar, title bar, installer). README: install steps. OWNER-TODO: unsigned → SmartScreen.
 
 ## Checks
-- Linux during work: build of all projects + Core tests. Windows CI: build, Core + UI tests, publish, screenshots.
-- CI screenshots (`--fake`, 1024x768 cap, `ci-screenshots` branch): Fit + specs, Fit + Compact,
-  2 columns (no PawnIO, specs), Layout dropdown open (`--open-layout-box`).
+- Linux: icon script run and inspected; workflow YAML parsed. The .NET SDK could not be installed on the
+  dev machine this time, so the C# build ran only on the Windows CI (build, Core + UI tests, publish,
+  screenshots, installer build + test, release).
 
 ## Still open / limits
-- Not run on the target PC. The real Motherboard card has more fan rows than the fake one; long sensor labels wrap.
-- Fit uses card heights from the previous layout pass and settles in up to 3 passes; heights can change slightly
-  when columns get wider (less wrapping).
-- Clock question from 0.2 (OWNER-TODO 8) still waits for Alex's log. Unchanged: ADL fallback untested on RX 9000,
-  generic GPU-edge/board thresholds, unsigned exe.
+- Installer and exe are unsigned (SmartScreen warns). Not run on the target PC.
+- Unchanged from 0.3: ADL fallback untested on RX 9000, clock question (OWNER-TODO 8), generic thresholds.
