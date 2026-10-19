@@ -20,7 +20,9 @@ internal static class Log
                 var info = new FileInfo(FilePath);
                 if (info.Exists && info.Length > 2_000_000)
                     info.Delete();
-                File.AppendAllText(FilePath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                // Invariant: in the user's culture the ":" of the format can become another time separator.
+                string stamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+                File.AppendAllText(FilePath, $"{stamp} {message}{Environment.NewLine}");
             }
         }
         catch (Exception)

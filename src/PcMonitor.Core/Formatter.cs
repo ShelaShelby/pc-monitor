@@ -56,6 +56,9 @@ public static class Formatter
     public static FormattedValue FormatTemperature(double celsius, TemperatureUnit unit)
     {
         double shown = UnitConversion.ToDisplayTemperature(celsius, unit);
+        // °C near double.MaxValue overflows to Infinity in °F.
+        if (!double.IsFinite(shown))
+            return new FormattedValue(NotAvailable, "");
         return new FormattedValue(shown.ToString("0.0", Inv), unit == TemperatureUnit.Fahrenheit ? "°F" : "°C");
     }
 

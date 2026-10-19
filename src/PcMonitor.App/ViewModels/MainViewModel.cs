@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using Microsoft.Win32;
 using PcMonitor.Core;
 
 namespace PcMonitor.App.ViewModels;
@@ -23,6 +24,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _status = "Starting…";
     private DriverStatus _pawnIo;
     private bool _rechecking;
+    /// <summary>The provider call running on the thread pool, if any (shutdown waits for it).</summary>
+    private Task? _providerCall;
 
     /// <param name="virtualTime">Screenshot mode: each tick advances time by one interval without waiting.</param>
     public MainViewModel(ISensorProvider provider, AppSettings settings, bool virtualTime = false)
@@ -36,11 +39,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenPawnIoCommand = new RelayCommand(OpenPawnIo);
         RecheckCommand = new RelayCommand(() => _ = RecheckAsync(), () => !_rechecking);
         ResetMinMaxCommand = new RelayCommand(() => _tracker.ResetMinMax());
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
     }
+
+    /// <summary>Test hook (--interval-ms): update interval that bypasses the 0.5 / 1 / 2 s choice; not saved.</summary>
+    public TimeSpan? IntervalOverride { get; init; }
 
     public ObservableCollection<CardViewModel> Cards { get; } = new();
 
-    /// <summary>"0.4": major.minor of the assembly version (Directory.Build.props).</summary>
+    /// <summary>"0.5": major.minor of the assembly version (Directory.Build.props).</summary>
     public static string VersionText { get; } = typeof(MainViewModel).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}" : "";
 
     public string VersionLabel => $"v{VersionText}";
@@ -176,10 +183,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await _providerGate.WaitAsync(ct).ConfigureAwait(true);
             try
             {
-                snapshot = await Task.Run(_provider.Read, ct).ConfigureAwait(true);
+                snapshot = await Track(Task.Run(_provider.Read, ct)).ConfigureAwait(true);
                 if (!_specsLoaded)
                 {
-                    IReadOnlyList<PartSpecs> specs = await Task.Run(_provider.GetSpecs, ct).ConfigureAwait(true);
+                    IReadOnlyList<PartSpecs> specs = await Track(Task.Run(_provider.GetSpecs, ct)).ConfigureAwait(true);
                     ApplySpecs(specs);
                     _specsLoaded = true;
                 }
@@ -198,22 +205,32 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _providerGate.Release();
             }
 
-            if (snapshot is not null)
+            if (snapshot is not null && !ct.IsCancellationRequested)
             {
-                double t = _virtualTime ? _ticks * _settings.UpdateIntervalSeconds : _clock.Elapsed.TotalSeconds;
-                _tracker.Record(snapshot, t);
-                _last = snapshot;
-                Refresh();
-                _ticks++;
-                double ms = (_clock.Elapsed - started).TotalMilliseconds;
-                Status = string.Create(CultureInfo.InvariantCulture,
-                    $"{_provider.Name} · every {_settings.UpdateIntervalSeconds:0.#} s · read {ms:0} ms · {DateTime.Now:HH:mm:ss}");
-                Ticked?.Invoke(this, _ticks);
+                // A failure while showing one update must not end this loop (the values would freeze).
+                try
+                {
+                    snapshot = SnapshotGuard.Sanitize(snapshot);
+                    double t = _virtualTime ? _ticks * _settings.UpdateIntervalSeconds : _clock.Elapsed.TotalSeconds;
+                    _tracker.Record(snapshot, t);
+                    _last = snapshot;
+                    Refresh();
+                    _ticks++;
+                    double ms = (_clock.Elapsed - started).TotalMilliseconds;
+                    Status = string.Create(CultureInfo.InvariantCulture,
+                        $"{_provider.Name} · every {_settings.UpdateIntervalSeconds:0.#} s · read {ms:0} ms · {DateTime.Now:HH:mm:ss}");
+                    Ticked?.Invoke(this, _ticks);
+                }
+                catch (Exception ex)
+                {
+                    Log.Write($"Update failed: {ex}");
+                    Status = $"Update failed: {ex.Message}";
+                }
             }
 
             TimeSpan wait = _virtualTime
                 ? TimeSpan.FromMilliseconds(15)
-                : TimeSpan.FromSeconds(_settings.UpdateIntervalSeconds) - (_clock.Elapsed - started);
+                : (IntervalOverride ?? TimeSpan.FromSeconds(_settings.UpdateIntervalSeconds)) - (_clock.Elapsed - started);
             if (wait < TimeSpan.FromMilliseconds(15))
                 wait = TimeSpan.FromMilliseconds(15);
             try
@@ -232,7 +249,78 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_last is null)
             return;
         foreach (CardViewModel card in Cards)
-            card.Update(_last.Find(card.Kind), _tracker, _settings.TemperatureUnit);
+        {
+            // One card failing must not stop the others from updating.
+            try
+            {
+                card.Update(_last.Find(card.Kind), _tracker, _settings.TemperatureUnit);
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"Card {card.Kind} update failed: {ex}");
+            }
+        }
+    }
+
+    private Task<T> Track<T>(Task<T> call)
+    {
+        _providerCall = call;
+        return call;
+    }
+
+    /// <summary>
+    /// Waits until no provider call is running on the thread pool, so the provider can be disposed
+    /// without closing the driver under a running read. False if a call is still running after the timeout.
+    /// </summary>
+    public bool WaitForProvider(TimeSpan timeout)
+    {
+        Task? call = _providerCall;
+        if (call is null || call.IsCompleted)
+            return true;
+        try
+        {
+            return call.Wait(timeout);
+        }
+        catch (AggregateException)
+        {
+            return true;   // the call finished (with an error the loop already logs)
+        }
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Resume || _cts.IsCancellationRequested)
+            return;
+        // Raised on a SystemEvents thread; drivers can come back reset after sleep, so reopen hardware access.
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() => _ = ReopenAsync()));
+    }
+
+    private async Task ReopenAsync()
+    {
+        if (_cts.IsCancellationRequested)
+            return;
+        Status = "Resumed from sleep: reopening sensors…";
+        try
+        {
+            await _providerGate.WaitAsync(_cts.Token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        try
+        {
+            await Track(Task.Run(() => { _provider.Reopen(); return true; })).ConfigureAwait(true);
+            _specsLoaded = false;
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Reopen after resume failed: {ex}");
+        }
+        finally
+        {
+            _providerGate.Release();
+        }
     }
 
     private void ApplySpecs(IReadOnlyList<PartSpecs> specs)
@@ -262,7 +350,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await _providerGate.WaitAsync().ConfigureAwait(true);
         try
         {
-            await Task.Run(_provider.Recheck).ConfigureAwait(true);
+            await Track(Task.Run(() => { _provider.Recheck(); return true; })).ConfigureAwait(true);
             _specsLoaded = false;
         }
         catch (Exception ex)
@@ -283,7 +371,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_cts.IsCancellationRequested)
+            return;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        // Cancel only; the token stays usable for the loop's last iteration (not disposed while it may still run).
         _cts.Cancel();
-        _cts.Dispose();
     }
 }

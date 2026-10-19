@@ -22,6 +22,8 @@ public partial class MainWindow : Window
     private NativeMethods.RECT? _normalRect;
     private bool _fullscreen;
     private WindowState _stateBeforeFullscreen = WindowState.Normal;
+    /// <summary>Last state other than Minimized, so closing from the taskbar keeps "maximized".</summary>
+    private WindowState _restoreState = WindowState.Normal;
 
     internal MainWindow(ISensorProvider provider, AppSettings settings, App.Options options)
     {
@@ -37,6 +39,7 @@ public partial class MainWindow : Window
         _vm = new MainViewModel(provider, settings, virtualTime: options.Screenshot is not null && options.Fake)
         {
             ShowSpecs = options.ShowSpecs,
+            IntervalOverride = options.IntervalMs is int ms ? TimeSpan.FromMilliseconds(ms) : null,
         };
         DataContext = _vm;
         if (options.Width is double w && options.Height is double h)
@@ -57,6 +60,11 @@ public partial class MainWindow : Window
         _vm.Ticked += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => ApplyLayout()));
         LocationChanged += (_, _) => RememberNormalRect();
         SizeChanged += (_, _) => RememberNormalRect();
+        StateChanged += (_, _) =>
+        {
+            if (WindowState != WindowState.Minimized)
+                _restoreState = WindowState;
+        };
         KeyDown += OnKeyDown;
         Closing += OnClosing;
     }
@@ -66,6 +74,8 @@ public partial class MainWindow : Window
         ApplyLayout();
         if (_options.Screenshot is not null)
             _vm.Ticked += OnTickForScreenshot;
+        if (_options.CycleEvery is int every)
+            _vm.Ticked += (_, ticks) => CycleForSoak(ticks, every);
         _ = _vm.RunAsync();
     }
 
@@ -249,12 +259,18 @@ public partial class MainWindow : Window
                     Top = r.Top,
                     Width = r.Right - r.Left,
                     Height = r.Bottom - r.Top,
-                    Maximized = _fullscreen ? _stateBeforeFullscreen == WindowState.Maximized : WindowState == WindowState.Maximized,
+                    Maximized = (_fullscreen ? _stateBeforeFullscreen : _restoreState) == WindowState.Maximized,
                     Fullscreen = _fullscreen,
                     Monitor = NativeMethods.MonitorName(Handle),
                 };
             }
             SettingsStore.Save(_settings);
+        }
+        // A read may still be running on the thread pool; closing the driver under it can crash the process.
+        if (!_vm.WaitForProvider(TimeSpan.FromSeconds(5)))
+        {
+            Log.Write("Provider still busy at exit; not disposing it (the process exit releases it)");
+            return;
         }
         try
         {
@@ -264,6 +280,25 @@ public partial class MainWindow : Window
         {
             Log.Write($"Provider dispose: {ex.Message}");
         }
+    }
+
+    // ---------- soak test (CI) ----------
+
+    /// <summary>Exercises the layout, unit, compact and min/max paths repeatedly so leaks show up in the soak test.</summary>
+    private void CycleForSoak(int ticks, int every)
+    {
+        if (ticks % every != 0)
+            return;
+        int step = ticks / every;
+        _vm.Layout = LayoutFit.Next(_vm.Layout);
+        if (step % 2 == 0)
+            _vm.IsFahrenheit = !_vm.IsFahrenheit;
+        if (step % 3 == 0)
+            _vm.Compact = !_vm.Compact;
+        if (step % 4 == 0)
+            _vm.ShowSpecs = !_vm.ShowSpecs;
+        if (step % 5 == 0)
+            _vm.ResetMinMaxCommand.Execute(null);
     }
 
     // ---------- screenshot mode (CI) ----------

@@ -29,6 +29,8 @@ public sealed class FakeSensorProvider : ISensorProvider
 
     public void Recheck() { }
 
+    public void Reopen() { }
+
     public void Dispose() { }
 
     private double Wave(double period, double phase = 0) => Math.Sin((_tick + phase) * 2 * Math.PI / period);

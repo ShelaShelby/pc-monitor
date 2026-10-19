@@ -18,7 +18,9 @@ public partial class App : Application
         bool ShowSpecs,
         LayoutMode? Layout,
         bool Compact,
-        bool OpenLayoutBox);
+        bool OpenLayoutBox,
+        int? IntervalMs = null,
+        int? CycleEvery = null);
 
     internal static Options ParseArgs(string[] args)
     {
@@ -27,6 +29,7 @@ public partial class App : Application
         string? shot = null;
         int ticks = 70;
         double? w = null, h = null;
+        int? intervalMs = null, cycleEvery = null;
         for (int i = 0; i < args.Length; i++)
         {
             string a = args[i].ToLowerInvariant();
@@ -59,11 +62,14 @@ public partial class App : Application
                     h = double.Parse(p[1], CultureInfo.InvariantCulture);
                     i++;
                     break;
+                // Soak test hooks: fast updates, and cycle layout / units / compact every N updates.
+                case "--interval-ms" when next is not null: intervalMs = Math.Max(10, int.Parse(next, CultureInfo.InvariantCulture)); i++; break;
+                case "--cycle-every" when next is not null: cycleEvery = Math.Max(1, int.Parse(next, CultureInfo.InvariantCulture)); i++; break;
                 case "--log" when next is not null: Log.FilePath = Path.GetFullPath(next); i++; break;
                 case "--settings" when next is not null: SettingsStore.FilePath = Path.GetFullPath(next); i++; break;
             }
         }
-        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs, layout, compact, openLayout);
+        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs, layout, compact, openLayout, intervalMs, cycleEvery);
     }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -74,6 +80,15 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, ev) => Log.Write($"Unhandled: {ev.ExceptionObject}");
         TaskScheduler.UnobservedTaskException += (_, ev) => { Log.Write($"Unobserved: {ev.Exception}"); ev.SetObserved(); };
         Log.Write($"Start pc-monitor {typeof(App).Assembly.GetName().Version} args='{string.Join(' ', e.Args)}'");
+
+        // One real instance at a time: two would open the sensor drivers twice and fight over settings.json.
+        if (!options.Fake && !SingleInstance.TryAcquire())
+        {
+            Log.Write("Another instance is running; bringing it to the front and exiting");
+            SingleInstance.ActivateOther();
+            Shutdown(0);
+            return;
+        }
 
         ISensorProvider provider = options.Fake
             ? new FakeSensorProvider(pawnIoInstalled: !options.FakeNoPawnIo)
@@ -96,6 +111,12 @@ public partial class App : Application
         var window = new MainWindow(provider, settings, options);
         MainWindow = window;
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        SingleInstance.Release();
+        base.OnExit(e);
     }
 
     private void OnUiException(object sender, DispatcherUnhandledExceptionEventArgs e)

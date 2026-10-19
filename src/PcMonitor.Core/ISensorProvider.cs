@@ -17,6 +17,9 @@ public interface ISensorProvider : IDisposable
     /// <summary>Re-detect drivers and, if something changed, reinitialise hardware access.</summary>
     void Recheck();
 
+    /// <summary>Close and reopen hardware access (after sleep/resume, when drivers may have reset).</summary>
+    void Reopen();
+
     /// <summary>Poll every sensor once and return the current values.</summary>
     SystemSnapshot Read();
 

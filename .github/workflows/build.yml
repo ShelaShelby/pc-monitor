@@ -49,6 +49,10 @@ jobs:
           if (-not (Test-Path $exe)) { throw "pc-monitor.exe missing" }
           $extra = Get-ChildItem artifacts/publish -File | Where-Object { $_.Extension -in ".dll", ".json" }
           if ($extra) { throw "publish is not single-file: $($extra.Name -join ', ')" }
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $fileVersion = (Get-Item $exe).VersionInfo.FileVersion
+          Write-Host "exe FileVersion $fileVersion, Directory.Build.props $version"
+          if (-not $fileVersion.StartsWith($version)) { throw "exe version $fileVersion does not match $version" }
 
       - name: Screenshots (FakeSensorProvider)
         shell: pwsh
@@ -73,6 +77,62 @@ jobs:
             Write-Host "$($r.name): $((Get-Item $png).Length) bytes"
           }
 
+      - name: Soak test (fake sensors, 3 minutes, 100 ms updates, layouts/units cycling)
+        shell: pwsh
+        run: |
+          Add-Type -Namespace Native -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern uint GetGuiResources(System.IntPtr process, uint flags);'
+          $exe = (Resolve-Path "artifacts/publish/pc-monitor.exe").Path
+          New-Item -ItemType Directory -Force artifacts/soak | Out-Null
+          $dir = (Resolve-Path "artifacts/soak").Path
+          $log = Join-Path $dir "soak.log"
+          $p = Start-Process -FilePath $exe -PassThru -ArgumentList @("--fake", "--show-specs", "--interval-ms", "100", "--cycle-every", "25",
+            "--size", "1280x900", "--log", $log, "--settings", (Join-Path $dir "settings.json"))
+          Start-Sleep -Seconds 30   # warm-up
+          $samples = @()
+          foreach ($i in 0..15) {
+            if ($p.HasExited) { if (Test-Path $log) { Get-Content $log }; throw "app exited during soak (exit $($p.ExitCode))" }
+            $p.Refresh()
+            $samples += [pscustomobject]@{
+              t = 30 + 10 * $i
+              workingSetMB = [math]::Round($p.WorkingSet64 / 1MB, 1)
+              privateMB = [math]::Round($p.PrivateMemorySize64 / 1MB, 1)
+              handles = $p.HandleCount
+              gdi = [Native.User32]::GetGuiResources($p.Handle, 0)
+              user = [Native.User32]::GetGuiResources($p.Handle, 1)
+            }
+            if ($i -lt 15) { Start-Sleep -Seconds 10 }
+          }
+          $samples | Format-Table | Out-String | Write-Host
+          $samples | Export-Csv (Join-Path $dir "soak.csv") -NoTypeInformation
+
+          # Graceful close exercises the shutdown path (provider wait, settings save).
+          $null = $p.CloseMainWindow()
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "app did not exit within 30 s after close" }
+          Write-Host "exit code $($p.ExitCode)"
+
+          $lines = @()
+          $fail = @()
+          foreach ($m in "workingSetMB", "privateMB", "handles", "gdi", "user") {
+            $v = $samples | ForEach-Object { [double]$_.$m }
+            $first = ($v[0..2] | Measure-Object -Average).Average
+            $last = ($v[13..15] | Measure-Object -Average).Average
+            $growth = if ($first -gt 0) { ($last - $first) / $first } else { 0 }
+            $monotonic = $true
+            for ($k = 1; $k -lt $v.Count; $k++) { if ($v[$k] -le $v[$k - 1]) { $monotonic = $false } }
+            $minAbs = @{ workingSetMB = 15; privateMB = 15; handles = 50; gdi = 20; user = 20 }[$m]
+            $line = "{0}: first3 {1:0.0} last3 {2:0.0} growth {3:P1} strictly-rising {4}" -f $m, $first, $last, $growth, $monotonic
+            $lines += $line
+            # Clear growth only: >25 % AND a real absolute amount, or a handle/GDI/USER count that rose at every sample.
+            if ($growth -gt 0.25 -and ($last - $first) -gt $minAbs) { $fail += $line }
+            if ($m -in "handles", "gdi", "user" -and $monotonic -and ($v[-1] - $v[0]) -gt 20) { $fail += "$line (monotonic)" }
+          }
+          $lines | Set-Content (Join-Path $dir "soak-summary.txt")
+          $lines | ForEach-Object { Write-Host $_; Add-Content $env:GITHUB_STEP_SUMMARY "- $_" }
+          $errors = Select-String -Path $log -Pattern "Unhandled|UI exception|Update failed|Card .* update failed|Read failed|Unobserved" -ErrorAction SilentlyContinue
+          if ($errors) { $errors | ForEach-Object { Write-Host $_.Line }; $fail += "errors in soak.log" }
+          if ($p.ExitCode -ne 0) { $fail += "exit code $($p.ExitCode)" }
+          if ($fail) { throw "soak test failed: $($fail -join '; ')" }
+
       - name: Smoke test (real LibreHardwareMonitor provider on the CI VM)
         shell: pwsh
         continue-on-error: true
@@ -85,6 +145,25 @@ jobs:
           if (-not $p.WaitForExit(240000)) { $p.Kill(); throw "real provider timed out" }
           if (Test-Path $log) { Get-Content $log }
           if (-not (Test-Path $png)) { throw "real provider: no screenshot (exit $($p.ExitCode))" }
+
+      - name: Second instance exits (real provider)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = (Resolve-Path "artifacts/publish/pc-monitor.exe").Path
+          $shots = (Resolve-Path "artifacts/shots").Path
+          $a = Start-Process -FilePath $exe -PassThru -ArgumentList @("--log", (Join-Path $shots "instance-1.log"), "--settings", (Join-Path $shots "settings-instance.json"))
+          Start-Sleep -Seconds 15
+          $logB = Join-Path $shots "instance-2.log"
+          $b = Start-Process -FilePath $exe -PassThru -ArgumentList @("--log", $logB, "--settings", (Join-Path $shots "settings-instance.json"))
+          $exited = $b.WaitForExit(60000)
+          if (Test-Path $logB) { Get-Content $logB }
+          $null = $a.CloseMainWindow()
+          if (-not $a.WaitForExit(30000)) { $a.Kill() }
+          if (-not $exited) { $b.Kill(); throw "second instance did not exit" }
+          if (-not (Select-String -Path $logB -Pattern "Another instance is running" -Quiet)) { throw "second instance did not detect the first" }
+          if ($a.ExitCode -ne 0) { throw "first instance exit code $($a.ExitCode)" }
+          Write-Host "ok: second instance exited ($($b.ExitCode)), first closed cleanly"
 
       - name: Build installer (Inno Setup)
         id: installer
@@ -108,6 +187,9 @@ jobs:
           if (-not $version) { throw "Version not found in Directory.Build.props" }
           & $iscc "/DAppVersion=$version" installer/pc-monitor.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          # Same script with an older version number, for the upgrade test (0.4 used this script unchanged apart from the version).
+          & $iscc "/DAppVersion=0.4.0" "/DOutputDir=..\artifacts\installer-old" installer/pc-monitor.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC (old version) failed ($LASTEXITCODE)" }
           $setup = "artifacts/installer/pc-monitor-setup.exe"
           if (-not (Test-Path $setup)) { throw "pc-monitor-setup.exe missing" }
           Write-Host "pc-monitor-setup.exe: $((Get-Item $setup).Length) bytes, version $version"
@@ -164,6 +246,35 @@ jobs:
           Check (-not (Test-Path (Join-Path $dir "pc-monitor.exe"))) "exe removed"
           Check (-not (Test-Path $startLnk)) "Start Menu shortcut removed"
 
+          # Run 3: upgrade 0.4 -> current over the same folder: one Apps entry, one shortcut each, new version registered.
+          $old = (Resolve-Path "artifacts/installer-old/pc-monitor-setup.exe").Path
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "pcm-install-3"
+          $p = Start-Process -FilePath $old -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`"", "/TASKS=`"desktopicon`"") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "old setup exit $($p.ExitCode)" }
+          $uninstallKeys = { @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -eq "PC Monitor" }) }
+          Check ((& $uninstallKeys).Count -eq 1) "0.4 registered once"
+          Check ((Get-ItemProperty (& $uninstallKeys)[0].PSPath).DisplayVersion -eq "0.4.0") "0.4 DisplayVersion"
+          $localApp = Join-Path $env:LOCALAPPDATA "PcMonitor"
+          New-Item -ItemType Directory -Force $localApp | Out-Null
+          Set-Content (Join-Path $localApp "settings.json") '{"Layout": "Columns3"}'
+          Install $dir "desktopicon"
+          $keys = & $uninstallKeys
+          Check ($keys.Count -eq 1) "one Apps entry after upgrade (found $($keys.Count))"
+          Check ((Get-ItemProperty $keys[0].PSPath).DisplayVersion -eq $version) "DisplayVersion is $version after upgrade"
+          Check (@(Get-ChildItem ([Environment]::GetFolderPath("Desktop")) -Filter "PC Monitor*.lnk").Count -eq 1) "one desktop shortcut"
+          Check (@(Get-ChildItem ([Environment]::GetFolderPath("Programs")) -Recurse -Filter "PC Monitor*.lnk").Count -eq 1) "one Start Menu shortcut"
+          Check ((Get-Item (Join-Path $dir "pc-monitor.exe")).VersionInfo.FileVersion.StartsWith($version)) "upgraded exe is $version"
+          Check ((Get-Content (Join-Path $localApp "settings.json") -Raw) -match "Columns3") "user settings kept by the upgrade"
+          Set-Content (Join-Path $localApp "settings.json.tmp") "{}"
+          Set-Content (Join-Path $localApp "pc-monitor.log") "x"
+          Uninstall $dir
+          Check ((& $uninstallKeys).Count -eq 0) "Apps entry removed"
+          Check (-not (Test-Path (Join-Path $dir "pc-monitor.exe"))) "exe removed"
+          Check (-not (Test-Path $desktopLnk)) "desktop shortcut removed"
+          Check (-not (Test-Path $localApp)) "settings, temp file and log in %LOCALAPPDATA%\PcMonitor removed"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -172,6 +283,7 @@ jobs:
             artifacts/publish/pc-monitor.exe
             artifacts/installer/pc-monitor-setup.exe
             artifacts/shots
+            artifacts/soak
             artifacts/test-results
 
       - name: Push screenshots to ci-screenshots branch
@@ -194,6 +306,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          version=$(sed -n 's:.*<Version>\([0-9]*\.[0-9]*\).*</Version>.*:\1:p' Directory.Build.props | head -1)
           cp artifacts/publish/pc-monitor.exe pc-monitor.exe
           assets=(pc-monitor.exe)
           if [ -f artifacts/installer/pc-monitor-setup.exe ]; then
@@ -208,6 +321,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "latest" \
-            --notes "pc-monitor 0.4 built from ${GITHUB_SHA}. Windows 11 x64. pc-monitor-setup.exe = installer (per-user, Start Menu + optional desktop shortcut); pc-monitor.exe = portable self-contained exe. Both unsigned; the app asks for administrator rights. See README.md and OWNER-TODO.md." \
+            --notes "pc-monitor ${version} built from ${GITHUB_SHA}. Windows 11 x64. pc-monitor-setup.exe = installer (per-user, Start Menu + optional desktop shortcut); pc-monitor.exe = portable self-contained exe. Both unsigned; the app asks for administrator rights. See README.md and OWNER-TODO.md." \
             --latest
           gh release view latest --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,assets

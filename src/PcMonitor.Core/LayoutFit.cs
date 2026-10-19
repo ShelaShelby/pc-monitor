@@ -119,7 +119,8 @@ public static class LayoutFit
         if (bestScale >= MinScale)
             return Result(heights, bestColumns, bestScale, windowW, windowH, minColumnWidth);
 
-        int fitColumns = Math.Clamp((int)Math.Floor(windowW / (minColumnWidth * MinScale)), 1, heights.Count);
+        // Clamp before the cast: a double above int.MaxValue has no defined int value.
+        int fitColumns = (int)Math.Clamp(Math.Floor(windowW / (minColumnWidth * MinScale)), 1, heights.Count);
         return Result(heights, fitColumns, MinScale, windowW, windowH, minColumnWidth) with { Scrolls = true };
     }
 

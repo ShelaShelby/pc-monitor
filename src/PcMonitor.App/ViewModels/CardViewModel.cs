@@ -39,11 +39,8 @@ public sealed class CardViewModel : ObservableObject
 
     public void Update(PartSnapshot? part, MetricTracker tracker, TemperatureUnit unit)
     {
-        if (part is null)
-        {
-            Notice = "No data";
-            return;
-        }
+        // A part missing from the snapshot (drive removed, adapter gone) shows n/a, not its last values.
+        part ??= new PartSnapshot(Kind, Title, "", Array.Empty<Metric>(), "No data");
         Subtitle = part.Subtitle;
         Notice = part.Notice;
 

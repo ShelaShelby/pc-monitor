@@ -16,6 +16,11 @@ internal sealed class LhmSensorProvider : ISensorProvider
     private readonly Dictionary<string, PhysicalDriveInfo?> _drives = new();
     private string? _networkId;
     private IReadOnlyList<PartSpecs>? _specs;
+    private int _networkChecks;
+    // WMI / registry results that do not change while running; read once instead of every update.
+    private string? _ramSummary;
+    private string? _boardName;
+    private readonly Dictionary<string, double?> _gpuMemoryBytes = new(StringComparer.Ordinal);
 
     public string Name => "LibreHardwareMonitor";
 
@@ -29,7 +34,18 @@ internal sealed class LhmSensorProvider : ISensorProvider
         Log.Write($"PawnIO: {_pawnIo.State} - {_pawnIo.Detail}");
         OpenComputer();
         foreach (string letter in new[] { "C:", "D:" })
-            _drives[letter] = DriveMapper.ForLetter(letter);
+        {
+            try
+            {
+                _drives[letter] = DriveMapper.ForLetter(letter);
+            }
+            catch (Exception ex)
+            {
+                // A broken WMI must not stop the app; the drive card shows what DriveInfo still gives.
+                Log.Write($"Drive mapping {letter} failed: {ex}");
+                _drives[letter] = null;
+            }
+        }
     }
 
     private void OpenComputer()
@@ -66,6 +82,15 @@ internal sealed class LhmSensorProvider : ISensorProvider
             OpenComputer();
             _specs = null;
         }
+    }
+
+    public void Reopen()
+    {
+        Log.Write("Reopening LibreHardwareMonitor (resume from sleep)");
+        _computer?.Close();
+        _computer = null;
+        _networkId = null;
+        OpenComputer();
     }
 
     public void Dispose()
@@ -219,11 +244,21 @@ internal sealed class LhmSensorProvider : ISensorProvider
 
     private IHardware? PickGpu()
     {
-        // Prefer the card with the most dedicated memory (the RX 9060 XT over the Ryzen iGPU).
-        return All(HardwareType.GpuAmd, HardwareType.GpuNvidia, HardwareType.GpuIntel)
-            .OrderByDescending(g => g.HardwareType == HardwareType.GpuAmd)
-            .ThenByDescending(g => Val(Find(g, SensorType.SmallData, "GPU Memory Total", "D3D Dedicated Memory Total")) ?? 0)
-            .FirstOrDefault();
+        // Discrete before integrated (the RX 9060 XT over the Ryzen iGPU), then the most dedicated memory.
+        IHardware[] gpus = All(HardwareType.GpuAmd, HardwareType.GpuNvidia, HardwareType.GpuIntel).ToArray();
+        GpuCandidate[] candidates = gpus.Select(g => new GpuCandidate(
+            g.Name,
+            g.HardwareType switch { HardwareType.GpuNvidia => GpuVendor.Nvidia, HardwareType.GpuIntel => GpuVendor.Intel, _ => GpuVendor.Amd },
+            Val(Find(g, SensorType.SmallData, "GPU Memory Total", "D3D Dedicated Memory Total")))).ToArray();
+        return GpuPicker.Pick(candidates) is int i ? gpus[i] : null;
+    }
+
+    private double? GpuMemoryBytes(string? name)
+    {
+        string key = name ?? "";
+        if (!_gpuMemoryBytes.TryGetValue(key, out double? bytes))
+            _gpuMemoryBytes[key] = bytes = SystemSpecs.GpuMemoryBytes(name);
+        return bytes;
     }
 
     private PartSnapshot ReadGpu()
@@ -245,7 +280,7 @@ internal sealed class LhmSensorProvider : ISensorProvider
 
         double? vramUsedMb = Val(Find(gpu, SensorType.SmallData, "GPU Memory Used")) ?? Val(Find(gpu, SensorType.SmallData, "D3D Dedicated Memory Used"));
         double? vramTotalMb = Val(Find(gpu, SensorType.SmallData, "GPU Memory Total")) ?? Val(Find(gpu, SensorType.SmallData, "D3D Dedicated Memory Total"));
-        double? vramTotalBytes = vramTotalMb * UnitConversion.BytesPerMiB ?? SystemSpecs.GpuMemoryBytes(gpu?.Name);
+        double? vramTotalBytes = vramTotalMb * UnitConversion.BytesPerMiB ?? GpuMemoryBytes(gpu?.Name);
 
         Reading edge = Reading.Of(Val(Find(gpu, SensorType.Temperature, "GPU Core")) ?? FromAdl(AdlFallback.TempEdge, AdlFallback.TempGfx), missing);
         // 0 MHz / 0 W together with no temperature is the driver not having sampled yet, not an idle GPU.
@@ -296,7 +331,9 @@ internal sealed class LhmSensorProvider : ISensorProvider
         metrics.Add(new Metric(MetricKeys.Used, "Used", MetricUnit.Bytes, Reading.Of(usedGb * UnitConversion.BytesPerGiB, "not exposed")));
         metrics.Add(new Metric(MetricKeys.Available, "Available", MetricUnit.Bytes, Reading.Of(availGb * UnitConversion.BytesPerGiB, "not exposed")));
         metrics.Add(new Metric(MetricKeys.Total, "Total", MetricUnit.Bytes, Reading.Of((usedGb + availGb) * UnitConversion.BytesPerGiB, "not exposed")));
-        return new PartSnapshot(PartKind.Ram, "RAM", SystemSpecs.RamSummary(), metrics);
+        if (string.IsNullOrEmpty(_ramSummary))
+            _ramSummary = SystemSpecs.RamSummary();
+        return new PartSnapshot(PartKind.Ram, "RAM", _ramSummary, metrics);
     }
 
     // ---------- drives ----------
@@ -400,7 +437,7 @@ internal sealed class LhmSensorProvider : ISensorProvider
         metrics.Insert(0, new Metric(MetricKeys.TemperatureMax, "Hottest sensor", MetricUnit.Celsius,
             Reading.Of(temps.Count > 0 ? temps.Max() : null, reason), TemperatureZone.Motherboard));
         string? notice = chips.Length == 0 ? $"No fan/temperature chip readable: {reason}." : null;
-        return new PartSnapshot(PartKind.Motherboard, CardLayout.TitleOf(PartKind.Motherboard), board?.Name ?? SystemSpecs.BoardName(), metrics, notice);
+        return new PartSnapshot(PartKind.Motherboard, CardLayout.TitleOf(PartKind.Motherboard), board?.Name ?? (_boardName ??= SystemSpecs.BoardName()), metrics, notice);
     }
 
     // ---------- network ----------
@@ -409,6 +446,13 @@ internal sealed class LhmSensorProvider : ISensorProvider
     {
         IHardware[] nics = All(HardwareType.Network).ToArray();
         IHardware? nic = nics.FirstOrDefault(n => n.Identifier.ToString() == _networkId);
+        // Every 20 reads: drop the adapter if Windows says it is down (cable unplugged, VPN off) and another is up.
+        if (nic is not null && ++_networkChecks % 20 == 0 && !IsUp(nic.Name) && nics.Any(n => n != nic && IsUp(n.Name)))
+        {
+            Log.Write($"Network adapter '{nic.Name}' is down; choosing another");
+            nics = nics.Where(n => n != nic && IsUp(n.Name)).ToArray();
+            nic = null;
+        }
         if (nic is null)
         {
             // Busiest adapter by total traffic so far; stays selected while it exists.
@@ -452,6 +496,18 @@ internal sealed class LhmSensorProvider : ISensorProvider
             boardFromLhm: All(HardwareType.Motherboard).FirstOrDefault()?.Name,
             superIo: All(HardwareType.SuperIO).Select(h => h.Name).ToArray());
         return _specs;
+    }
+
+    private static bool IsUp(string name)
+    {
+        try
+        {
+            return FindInterface(name)?.OperationalStatus is not (OperationalStatus.Down or OperationalStatus.NotPresent or OperationalStatus.LowerLayerDown);
+        }
+        catch (NetworkInformationException)
+        {
+            return true;
+        }
     }
 
     internal static NetworkInterface? FindInterface(string? name) =>

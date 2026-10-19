@@ -21,6 +21,7 @@ public sealed class MetricTracker
 
     public void Record(SystemSnapshot snapshot, double timeSeconds)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (PartSnapshot part in snapshot.Parts)
         {
             foreach (Metric metric in part.Metrics)
@@ -28,10 +29,16 @@ public sealed class MetricTracker
                 if (metric.Unit == MetricUnit.Text)
                     continue;
                 MetricHistory h = Get(part.Kind, metric.Key);
+                seen.Add(KeyOf(part.Kind, metric.Key));
                 h.History.Add(timeSeconds, metric.Reading.Value);
                 h.MinMax.Observe(metric.Reading.Value);
             }
         }
+        // A sensor (or a whole part) missing from this snapshot is a gap, so its sparkline ages out
+        // instead of showing the last values frozen.
+        foreach ((string key, MetricHistory h) in _byKey)
+            if (!seen.Contains(key))
+                h.History.Add(timeSeconds, null);
     }
 
     public MetricHistory Get(PartKind part, string metricKey)

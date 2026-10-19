@@ -59,6 +59,7 @@ Filename: "{app}\pc-monitor.exe"; Description: "Run PC Monitor"; Flags: postinst
 Type: files; Name: "{app}\settings.json"
 Type: files; Name: "{app}\pc-monitor.log"
 Type: files; Name: "{localappdata}\PcMonitor\settings.json"
+Type: files; Name: "{localappdata}\PcMonitor\settings.json.tmp"
 Type: files; Name: "{localappdata}\PcMonitor\pc-monitor.log"
 Type: dirifempty; Name: "{localappdata}\PcMonitor"
 Type: dirifempty; Name: "{app}"
