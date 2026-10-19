@@ -1,0 +1,10 @@
+2026-10-19 10:01:32.130 Start pc-monitor 0.5.0.0 args='--screenshot D:\a\pc-monitor\pc-monitor\artifacts\shots\real-ci-vm.png --ticks 3 --size 1600x1000 --log D:\a\pc-monitor\pc-monitor\artifacts\shots\real-ci-vm.log --settings D:\a\pc-monitor\pc-monitor\artifacts\shots\settings-real.json'
+2026-10-19 10:01:32.141 PawnIO: Missing - PawnIO driver is not installed.
+2026-10-19 10:01:32.581 Hardware: Motherboard 'Microsoft Virtual Machine' /motherboard sensors=0 sub=0
+2026-10-19 10:01:32.582 Hardware: Cpu 'Intel Xeon Platinum 8370C' /intelcpu/0 sensors=12 sub=0
+2026-10-19 10:01:32.582 Hardware: Memory 'Virtual Memory' /vram sensors=3 sub=0
+2026-10-19 10:01:32.582 Hardware: Memory 'Total Memory' /ram sensors=3 sub=0
+2026-10-19 10:01:32.583 Hardware: Network 'Ethernet 3' /nic/%7BDCE0AAB2-DE94-4AE1-834E-46E203C4930B%7D sensors=5 sub=0
+2026-10-19 10:01:32.583 Hardware: Network 'vEthernet (nat)' /nic/%7B9B3745D5-8E46-46CA-AE75-DD8EF41AC262%7D sensors=5 sub=0
+2026-10-19 10:01:32.589 ADL fallback unavailable: AMD ADL library not available
+2026-10-19 10:01:36.010 Screenshot written: D:\a\pc-monitor\pc-monitor\artifacts\shots\real-ci-vm.png

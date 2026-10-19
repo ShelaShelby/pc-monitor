@@ -1,0 +1,2 @@
+2026-10-19 09:58:24.960 Start pc-monitor 0.5.0.0 args='--fake --layout 3 --open-layout-box --size 1024x768 --ticks 20 --screenshot D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-layout-dropdown-1024x768.png --log D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-layout-dropdown-1024x768.log --settings D:\a\pc-monitor\pc-monitor\artifacts\shots\settings-fake-layout-dropdown-1024x768.json'
+2026-10-19 09:58:26.585 Screenshot written: D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-layout-dropdown-1024x768.png

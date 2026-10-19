@@ -1,0 +1,2 @@
+2026-10-19 09:58:21.978 Start pc-monitor 0.5.0.0 args='--fake-no-pawnio --show-specs --layout 2 --size 1024x768 --ticks 70 --screenshot D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-nopawnio-specs-2col-1024x768.png --log D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-nopawnio-specs-2col-1024x768.log --settings D:\a\pc-monitor\pc-monitor\artifacts\shots\settings-fake-nopawnio-specs-2col-1024x768.json'
+2026-10-19 09:58:24.639 Screenshot written: D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-nopawnio-specs-2col-1024x768.png

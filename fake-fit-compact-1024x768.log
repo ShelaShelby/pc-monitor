@@ -1,0 +1,2 @@
+2026-10-19 09:58:18.593 Start pc-monitor 0.5.0.0 args='--fake --layout fit --compact --size 1024x768 --ticks 70 --screenshot D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-fit-compact-1024x768.png --log D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-fit-compact-1024x768.log --settings D:\a\pc-monitor\pc-monitor\artifacts\shots\settings-fake-fit-compact-1024x768.json'
+2026-10-19 09:58:21.684 Screenshot written: D:\a\pc-monitor\pc-monitor\artifacts\shots\fake-fit-compact-1024x768.png

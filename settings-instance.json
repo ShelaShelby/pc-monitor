@@ -1,0 +1,16 @@
+{
+  "UpdateIntervalSeconds": 1,
+  "TemperatureUnit": "Celsius",
+  "AlwaysOnTop": false,
+  "Layout": "Fit",
+  "Compact": false,
+  "Window": {
+    "Left": -10,
+    "Top": -34,
+    "Width": 1044,
+    "Height": 788,
+    "Maximized": false,
+    "Fullscreen": false,
+    "Monitor": "\\\\.\\DISPLAY1"
+  }
+}
