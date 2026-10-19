@@ -23,3 +23,5 @@
 - GPU via ADL fallback: struct layout follows AMD's adl_structures.h but was never run against an RX 9000 driver.
 - GPU edge and motherboard thresholds are derived/generic (no vendor limit published) — marked as such in `ThresholdTable`.
 - The exe is unsigned (SmartScreen warning).
+- CI screenshots are capped at the runner's 1024x768 desktop (3 attempts to render larger failed, skipped);
+  layout/reflow was checked at that size and in a 1920-wide capture (3 columns) before the cap applied.

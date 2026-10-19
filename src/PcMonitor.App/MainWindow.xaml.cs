@@ -196,26 +196,7 @@ public partial class MainWindow : Window
     private void SaveScreenshot(string path)
     {
         FrameworkElement target = Root;
-        if (_options.Width is double w && _options.Height is double h)
-        {
-            // CI desktops are small (1024x768) and Windows caps windows to the screen. Detach the
-            // content and lay it out off-screen at the requested size so the capture shows the real layout.
-            foreach (object key in Resources.Keys)
-                Root.Resources[key] = Resources[key];
-            Root.DataContext = _vm;
-            Content = null;
-            Root.Measure(new Size(w, h));
-            Root.Arrange(new Rect(0, 0, w, h));
-            Root.UpdateLayout();
-            ReflowCards();
-            Root.Measure(new Size(w, h));
-            Root.Arrange(new Rect(0, 0, w, h));
-            Root.UpdateLayout();
-        }
-        else
-        {
-            target.UpdateLayout();
-        }
+        target.UpdateLayout();
         int width = (int)Math.Ceiling(target.ActualWidth);
         int height = (int)Math.Ceiling(target.ActualHeight);
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
