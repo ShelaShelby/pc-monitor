@@ -55,9 +55,21 @@ public class FormatterTests
 
     [Fact]
     public void MinMaxText() =>
-        Assert.Equal("min 40.0 °C · max 80.0 °C", Formatter.FormatMinMax(MetricUnit.Celsius, 40, 80, C));
+        Assert.Equal("min 40.0 · max 80.0 °C", Formatter.FormatMinMax(MetricUnit.Celsius, 40, 80, C));
 
     [Fact]
     public void MinMaxWithoutDataShowsNa() =>
         Assert.Equal("min n/a · max n/a", Formatter.FormatMinMax(MetricUnit.Celsius, null, null, C));
+
+    [Fact]
+    public void MinMaxKeepsBothUnitsWhenTheyDiffer() =>
+        Assert.Equal("min 512 KB/s · max 1.50 MB/s", Formatter.FormatMinMax(MetricUnit.BytesPerSecond, 512 * 1024, 1.5 * 1024 * 1024, C));
+
+    [Fact]
+    public void MinMaxOnlyWithAValueOnOneEnd() =>
+        Assert.Equal("min n/a · max 80.0 °C", Formatter.FormatMinMax(MetricUnit.Celsius, null, 80, C));
+
+    [Fact]
+    public void MinMaxWrapsOnlyBetweenHalves() =>
+        Assert.Equal("min\u00A040.0 · max\u00A080.0\u00A0°C", Formatter.KeepMinMaxHalvesTogether("min 40.0 · max 80.0 °C"));
 }

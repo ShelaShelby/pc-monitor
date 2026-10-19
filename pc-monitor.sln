@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{64F64F80
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PcMonitor.Core.Tests", "tests\PcMonitor.Core.Tests\PcMonitor.Core.Tests.csproj", "{ACBBFA9D-8623-4DC1-9F4C-C8F6A34BEB3C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PcMonitor.Ui.Tests", "tests\PcMonitor.Ui.Tests\PcMonitor.Ui.Tests.csproj", "{BFC63202-524C-4A17-8BD0-8AA1F48F75A2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -28,9 +30,14 @@ Global
 		{ACBBFA9D-8623-4DC1-9F4C-C8F6A34BEB3C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ACBBFA9D-8623-4DC1-9F4C-C8F6A34BEB3C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{ACBBFA9D-8623-4DC1-9F4C-C8F6A34BEB3C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BFC63202-524C-4A17-8BD0-8AA1F48F75A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BFC63202-524C-4A17-8BD0-8AA1F48F75A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BFC63202-524C-4A17-8BD0-8AA1F48F75A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BFC63202-524C-4A17-8BD0-8AA1F48F75A2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{83CD88C3-2657-4F24-B4AD-39B1F82495F3} = {6D9F7954-7987-45B5-80AE-68E2D36289EF}
 		{ACBBFA9D-8623-4DC1-9F4C-C8F6A34BEB3C} = {64F64F80-4C94-4445-A348-B1DDAA443E6C}
+		{BFC63202-524C-4A17-8BD0-8AA1F48F75A2} = {64F64F80-4C94-4445-A348-B1DDAA443E6C}
 	EndGlobalSection
 EndGlobal

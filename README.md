@@ -18,8 +18,9 @@ Built with C# / .NET 8 WPF and [LibreHardwareMonitorLib](https://github.com/Libr
 `pc-monitor.exe --fake` runs on simulated values (FakeSensorProvider), useful without hardware.
 
 ## Layouts
-Toolbar **Layout** (or key **L** to cycle): **Fit to window** (default; all cards scaled to fit, no scrolling,
-never below 55 % — then it scrolls), **2 / 3 / 4 columns** (scaled to the width, scrolls vertically),
+Toolbar **Layout** (or key **L** to cycle): **Fit to window** (default; cards packed into columns by their height,
+scaled and stretched to fill the window, never below 55 % — then it scrolls), **2 / 3 / 4 columns** (same packing,
+scaled to the width, scrolls vertically),
 **Auto** (unscaled wrapping). **Compact** hides specs and tightens spacing. Both are remembered.
 
 ## PawnIO (CPU temperature)

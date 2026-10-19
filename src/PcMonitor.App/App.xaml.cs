@@ -17,11 +17,12 @@ public partial class App : Application
         double? Height,
         bool ShowSpecs,
         LayoutMode? Layout,
-        bool Compact);
+        bool Compact,
+        bool OpenLayoutBox);
 
     internal static Options ParseArgs(string[] args)
     {
-        bool fake = false, noPawn = false, specs = false, compact = false;
+        bool fake = false, noPawn = false, specs = false, compact = false, openLayout = false;
         LayoutMode? layout = null;
         string? shot = null;
         int ticks = 70;
@@ -36,6 +37,7 @@ public partial class App : Application
                 case "--fake-no-pawnio": fake = true; noPawn = true; break;
                 case "--show-specs": specs = true; break;
                 case "--compact": compact = true; break;
+                case "--open-layout-box": openLayout = true; break;
                 case "--layout" when next is not null:
                     // fit, auto, 2, 3, 4
                     layout = next.ToLowerInvariant() switch
@@ -61,7 +63,7 @@ public partial class App : Application
                 case "--settings" when next is not null: SettingsStore.FilePath = Path.GetFullPath(next); i++; break;
             }
         }
-        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs, layout, compact);
+        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs, layout, compact, openLayout);
     }
 
     protected override void OnStartup(StartupEventArgs e)

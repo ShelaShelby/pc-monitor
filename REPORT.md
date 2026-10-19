@@ -1,35 +1,35 @@
-# pc-monitor 0.2 — report
+# pc-monitor 0.3 "pack and polish" — report
 
-## Fixed (from Alex's screenshot)
-1. **0 readings at start**: LibreHardwareMonitor gives 0 for Ryzen temperature, clocks and package power before the first
-   sample. CPU temperature (Tctl/Tdie, CCDs), clocks and package power of exactly 0 are now `n/a (waiting for first sample)`,
-   so min/max and sparklines never see them. GPU clocks/power: same, only while the GPU temperature is missing too.
-   Fan 0 RPM and 0 % load stay real. Logic in `Core/SensorGuards.cs`, tests in `SensorGuardTests`.
-2. **Clock (avg) = Clock (max core)**: cause not proven (no access to the PC). Now: avg = mean of `Core #n (Effective)` if
-   present, else `Cores (Average)`, else mean of `Core #n`; max = highest `Core #n`. Every CPU clock sensor with its value,
-   and the chosen sources, are written once to `pc-monitor.log` at the first non-zero read. Equal values are still both shown.
-3. **"DIMM 1" twice**: WMI query adds `BankLabel`; sticks are labelled `Stick n: <DeviceLocator> / <BankLabel>`
-   (`Core/RamLabels.cs`, `RamLabelTests`).
-4. **Sparklines exaggerating**: auto range grows around the data midpoint to at least 10 °C / 10 % / 500 MHz / 10 W /
-   300 RPM / 1 GB / 1 MB/s (`Core/SparkRange.cs`, `SparkRangeTests`).
-
-## New: layouts
-- Toolbar "Layout" dropdown + hotkey L: Fit to window (default), 2/3/4 columns, Auto (0.1 wrapping). "Compact" checkbox
-  hides specs, tightens row/card spacing and lowers the sparklines. Both saved in settings.json.
-- Fit: `LayoutFit.ChooseFit` tries 1..n columns of uniform cells (430 px wide, height of the tallest card) and takes the
-  largest scale (ties: fewer columns); applied as a LayoutTransform. Below 0.55 it stays at 0.55, uses the columns that
-  fit the width and scrolls vertically. Fixed columns scale to the width only and scroll vertically if needed (no 0.55
-  floor there, so all chosen columns stay visible). Upscaling above 1 is allowed when the window is large.
-- Tests: `LayoutFitTests` (1920x1080 7 cards, tall, tiny → 0.55 floor, 1 card, fixed columns, scrollbar, L cycling),
-  expected numbers worked out by hand in the test comments.
+## Fixed (from Alex's screenshots, 1593x997, Fit, specs on)
+1. **Fit wasted space**: cells were 430 px × tallest card. Now cards are packed into columns by their measured
+   height (masonry: card order kept, next card into the shortest column, ties leftmost; `LayoutFit.Pack`,
+   `Controls/MasonryPanel`). For 1..n columns scale = min(W / (cols × 430), H / tallest column), largest wins
+   (ties: fewer columns); columns are stretched to fill the full width (never below 430). 0.55 floor + vertical
+   scroll kept; 2/3/4 columns use the same packing. Auto unchanged. Tests: `LayoutFitTests` (7 cards at 1920x1080,
+   1024x768, 600x400, ties, fixed columns, scrollbar), numbers worked out in the comments.
+2. **Clipped text** (",162", "RPI", label touching value): the value sat in a `*` column squeezed by shared label
+   and min/max columns. Rows are now [label Auto, min 90, wraps above 170][gap 14][value Auto, min 64][gap 14]
+   [min/max, rest, right-aligned]. Min/max lines may only wrap between "min …" and "max …" (no trimming), and
+   show the unit once when both ends share it ("min 1,050 · max 1,199 RPM"). Hero value font 46 → 44.
+   Sizes live in `Core/CardMetrics.cs`. New WPF test project `PcMonitor.Ui.Tests` measures every label, value
+   and min/max half (fake data + widest values, °C/°F, normal/compact) with Segoe UI at 0.55, 0.68 and 1.0 and
+   checks it against its column (widths compared to each other, no fixed pixel values).
+3. **Blank Layout dropdown**: the standard white ComboBox showed the app's light text. Dark ComboBox style
+   (box, text, arrow, popup, hover, selection) in `Theme.xaml`. Test: SelectedItem text non-empty for each mode.
+4. **White title bar**: `DwmSetWindowAttribute` dark mode (20, fallback 19) after the handle exists; errors ignored.
+5. **NVMe shown as SCSI**: Interface now uses `MSFT_PhysicalDisk.BusType` (root\Microsoft\Windows\Storage,
+   matched by disk number); 17 → "NVMe". The Microsoft docs page was not reachable from the build machine, so
+   other BusType values keep what Win32_DiskDrive reports, as does any query failure (`StorageBus`, tests).
+6. Version 0.3 (toolbar and title bar).
 
 ## Checks
-- `dotnet build` + `dotnet test` (Core tests) on Linux during work; full build/test/publish on the Windows CI.
-- CI screenshots (capped at the runner's 1024x768 desktop), all with `--fake`: Fit, Fit + Compact,
-  and no-PawnIO + specs in 2 columns. They are on the `ci-screenshots` branch.
+- Linux during work: build of all projects + Core tests. Windows CI: build, Core + UI tests, publish, screenshots.
+- CI screenshots (`--fake`, 1024x768 cap, `ci-screenshots` branch): Fit + specs, Fit + Compact,
+  2 columns (no PawnIO, specs), Layout dropdown open (`--open-layout-box`).
 
 ## Still open / limits
-- Not run on the target PC. The clock question (bug 2) needs the new log lines from Alex (OWNER-TODO 8).
-- The Layout dropdown uses the standard Windows ComboBox look (not dark-themed).
-- At 1024x768 Fit gives ~0.6 scale (4 columns × 2 rows); text is small but everything is visible.
-- Unchanged from 0.1: ADL fallback untested on an RX 9000 driver, generic GPU-edge/board thresholds, unsigned exe.
+- Not run on the target PC. The real Motherboard card has more fan rows than the fake one; long sensor labels wrap.
+- Fit uses card heights from the previous layout pass and settles in up to 3 passes; heights can change slightly
+  when columns get wider (less wrapping).
+- Clock question from 0.2 (OWNER-TODO 8) still waits for Alex's log. Unchanged: ADL fallback untested on RX 9000,
+  generic GPU-edge/board thresholds, unsigned exe.

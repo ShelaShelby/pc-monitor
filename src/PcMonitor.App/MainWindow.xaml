@@ -4,6 +4,7 @@
         xmlns:vm="clr-namespace:PcMonitor.App.ViewModels"
         xmlns:c="clr-namespace:PcMonitor.App.Controls"
         xmlns:local="clr-namespace:PcMonitor.App"
+        xmlns:core="clr-namespace:PcMonitor.Core;assembly=PcMonitor.Core"
         Title="PC Monitor" Width="1600" Height="1000" MinWidth="480" MinHeight="360"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         Topmost="{Binding AlwaysOnTop}"
@@ -13,24 +14,25 @@
         <local:InvertBoolConverter x:Key="Invert" />
         <local:EqualsConverter x:Key="Equals" />
 
-        <!-- Auto layout: wrap unscaled cards. Scaled layouts: uniform grid, scaled by MainWindow.ApplyLayout. -->
+        <!-- Auto layout: wrap unscaled cards. Scaled layouts: cards packed into columns, scaled by MainWindow.ApplyLayout. -->
         <ItemsPanelTemplate x:Key="WrapCards">
             <WrapPanel Orientation="Horizontal" />
         </ItemsPanelTemplate>
         <ItemsPanelTemplate x:Key="GridCards">
-            <UniformGrid Columns="{Binding GridColumns}" VerticalAlignment="Top" />
+            <c:MasonryPanel Columns="{Binding GridColumns}" ColumnWidth="{Binding ColumnWidth}" VerticalAlignment="Top" />
         </ItemsPanelTemplate>
 
         <DataTemplate x:Key="HeroTemplate" DataType="{x:Type vm:MetricViewModel}">
+            <!-- Sizes come from core:CardMetrics (HeroGap, HeroUnitGap, fonts); UI tests check the text fits. -->
             <StackPanel Margin="0,0,12,0">
                 <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" FontSize="14" />
                 <StackPanel Orientation="Horizontal" Margin="0,-2,0,0">
-                    <TextBlock Text="{Binding Value}" FontSize="46" FontWeight="SemiBold" Foreground="{Binding Brush}" />
-                    <TextBlock Text="{Binding Unit}" FontSize="20" Margin="6,0,0,9" VerticalAlignment="Bottom" Foreground="{StaticResource DimBrush}" />
+                    <TextBlock Text="{Binding Value}" FontSize="{x:Static core:CardMetrics.HeroValueFontSize}" FontWeight="SemiBold" Foreground="{Binding Brush}" />
+                    <TextBlock Text="{Binding Unit}" FontSize="{x:Static core:CardMetrics.HeroUnitFontSize}" Margin="6,0,0,9" VerticalAlignment="Bottom" Foreground="{StaticResource DimBrush}" />
                 </StackPanel>
                 <TextBlock Text="{Binding Reason}" Style="{StaticResource Caption}" TextWrapping="Wrap"
                            Visibility="{Binding HasReason, Converter={StaticResource BoolToVis}}" />
-                <TextBlock Text="{Binding MinMax}" Style="{StaticResource Caption}" />
+                <TextBlock Text="{Binding MinMax}" Style="{StaticResource Caption}" FontSize="{x:Static core:CardMetrics.HeroMinMaxFontSize}" TextWrapping="Wrap" />
                 <c:Sparkline Height="{Binding DataContext.SparkHeight, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,6,0,0" Points="{Binding History}" Stroke="{Binding SparkBrush}" Unit="{Binding ValueUnit}"
                              Minimum="{Binding RangeMin}" Maximum="{Binding RangeMax}" />
             </StackPanel>
@@ -63,23 +65,30 @@
                     <ItemsControl ItemsSource="{Binding Rows}" Margin="0,6,0,0" Grid.IsSharedSizeScope="True" Focusable="False">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:MetricViewModel}">
+                                <!-- [label][gap][value + unit][gap][min/max]. Label and value columns are Auto (shared across
+                                     the card), so a value is never squeezed; min/max takes the rest and wraps between its halves.
+                                     Sizes come from core:CardMetrics; UI tests check that the text fits at 0.55, 0.68 and 1.0. -->
                                 <Grid Margin="{Binding DataContext.RowMargin, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Reason}">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Label" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Label" MinWidth="{x:Static core:CardMetrics.LabelMinWidth}" />
+                                        <ColumnDefinition Width="Auto" MinWidth="{x:Static core:CardMetrics.ColumnGap}" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="Value" MinWidth="{x:Static core:CardMetrics.ValueMinWidth}" />
+                                        <ColumnDefinition Width="Auto" MinWidth="{x:Static core:CardMetrics.ColumnGap}" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="MinMax" />
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding Label}" Style="{StaticResource Caption}" FontSize="15" Margin="0,0,14,0" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Value}" FontSize="17" FontWeight="SemiBold" Foreground="{Binding Brush}" />
-                                        <TextBlock Text="{Binding Unit}" FontSize="13" Margin="4,0,0,1" VerticalAlignment="Bottom" Foreground="{StaticResource DimBrush}" />
+                                    <TextBlock Grid.Column="0" Text="{Binding Label}" Style="{StaticResource Caption}" FontSize="{x:Static core:CardMetrics.LabelFontSize}"
+                                               MaxWidth="{x:Static core:CardMetrics.LabelMaxWidth}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Value}" FontSize="{x:Static core:CardMetrics.ValueFontSize}" FontWeight="SemiBold" Foreground="{Binding Brush}" />
+                                        <TextBlock Text="{Binding Unit}" FontSize="{x:Static core:CardMetrics.UnitFontSize}" Margin="4,0,0,1" VerticalAlignment="Bottom" Foreground="{StaticResource DimBrush}" />
                                     </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{Binding MinMax}" Style="{StaticResource Caption}" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Reason, StringFormat='n/a because: {0}'}"
+                                    <TextBlock Grid.Column="4" Text="{Binding MinMax}" Style="{StaticResource Caption}" FontSize="{x:Static core:CardMetrics.MinMaxFontSize}"
+                                               TextWrapping="Wrap" TextAlignment="Right" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" Text="{Binding Reason, StringFormat='n/a because: {0}'}"
                                                Style="{StaticResource Caption}" FontSize="12" Margin="0,0,0,2" TextWrapping="Wrap"
                                                Visibility="{Binding HasReason, Converter={StaticResource BoolToVis}}" />
                                 </Grid>
@@ -118,7 +127,8 @@
         <!-- Toolbar -->
         <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Left" Text="PC Monitor" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0" />
+                <TextBlock DockPanel.Dock="Left" Text="PC Monitor" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBlock DockPanel.Dock="Left" Text="{Binding VersionLabel}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,3,20,0" />
                 <WrapPanel DockPanel.Dock="Right" VerticalAlignment="Center">
                     <TextBlock Text="Update" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,4,0" />
                     <RadioButton GroupName="rate" Content="0.5 s" IsChecked="{Binding UpdateInterval, Converter={StaticResource Equals}, ConverterParameter=0.5}" />
@@ -132,7 +142,7 @@
                     <CheckBox Content="Show specs" IsChecked="{Binding ShowSpecs}" />
                     <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
                     <TextBlock Text="Layout (L)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <ComboBox x:Name="LayoutBox" Width="130" VerticalAlignment="Center" Focusable="False"
+                    <ComboBox x:Name="LayoutBox" Width="130" VerticalAlignment="Center" Focusable="False" Style="{StaticResource DarkComboBox}"
                               ItemsSource="{Binding LayoutOptions}" DisplayMemberPath="Name" SelectedValuePath="Mode"
                               SelectedValue="{Binding Layout}" />
                     <CheckBox Content="Compact" IsChecked="{Binding Compact}" />

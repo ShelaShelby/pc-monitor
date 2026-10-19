@@ -53,7 +53,7 @@ public sealed class MetricViewModel : ObservableObject
         Reason = metric.Unit != MetricUnit.Text && !metric.Reading.HasValue ? metric.Reading.Reason : null;
         MinMax = history is null || metric.Unit == MetricUnit.Text
             ? ""
-            : Formatter.FormatMinMax(metric.Unit, history.MinMax.Min, history.MinMax.Max, tempUnit);
+            : Formatter.KeepMinMaxHalvesTogether(Formatter.FormatMinMax(metric.Unit, history.MinMax.Min, history.MinMax.Max, tempUnit));
 
         Brush brush = defaultBrush;
         if (metric.Unit == MetricUnit.Celsius)

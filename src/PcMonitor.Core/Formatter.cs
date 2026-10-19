@@ -82,6 +82,21 @@ public static class Formatter
         return new FormattedValue(b.Value, b.Unit + "/s");
     }
 
-    public static string FormatMinMax(MetricUnit unit, double? min, double? max, TemperatureUnit temperatureUnit) =>
-        $"min {Format(unit, min, temperatureUnit)} · max {Format(unit, max, temperatureUnit)}";
+    /// <summary>"min 40.0 · max 80.0 °C"; the unit is written once when both ends share it.</summary>
+    public static string FormatMinMax(MetricUnit unit, double? min, double? max, TemperatureUnit temperatureUnit)
+    {
+        FormattedValue lo = Format(unit, min, temperatureUnit);
+        FormattedValue hi = Format(unit, max, temperatureUnit);
+        string loText = lo.Unit.Length == 0 || lo.Unit == hi.Unit ? lo.Value : lo.ToString();
+        return $"min {loText} · max {hi}";
+    }
+
+    private const char NoBreakSpace = '\u00A0';
+
+    /// <summary>
+    /// Min/max text for display: the line may only wrap between the "min …" and "max …" halves,
+    /// so a narrow column shows two whole lines instead of clipping.
+    /// </summary>
+    public static string KeepMinMaxHalvesTogether(string minMax) =>
+        string.Join(" · ", minMax.Split(" · ").Select(h => h.Replace(' ', NoBreakSpace)));
 }

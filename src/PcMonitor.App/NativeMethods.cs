@@ -68,4 +68,28 @@ internal static class NativeMethods
 
     public static string? MonitorName(IntPtr hwnd) =>
         hwnd == IntPtr.Zero ? null : Info(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST))?.szDevice;
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    /// <summary>Same attribute on Windows 10 builds before 20H1.</summary>
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
+
+    /// <summary>Dark title bar to match the app. Best effort: any failure keeps the default title bar.</summary>
+    public static void UseDarkTitleBar(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return;
+        try
+        {
+            int on = 1;
+            if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref on, sizeof(int));
+        }
+        catch (Exception)
+        {
+            // Older Windows without these DWM attributes: keep the default title bar.
+        }
+    }
 }

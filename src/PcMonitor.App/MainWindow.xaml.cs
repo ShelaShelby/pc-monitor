@@ -13,7 +13,7 @@ namespace PcMonitor.App;
 
 public partial class MainWindow : Window
 {
-    private const double TargetCardWidth = 430;
+    private const double TargetCardWidth = CardMetrics.MinColumnWidth;
 
     private readonly MainViewModel _vm;
     private readonly ISensorProvider _provider;
@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     internal MainWindow(ISensorProvider provider, AppSettings settings, App.Options options)
     {
         InitializeComponent();
+        Title = $"PC Monitor {MainViewModel.VersionText}";
         _provider = provider;
         _settings = settings;
         _options = options;
@@ -72,8 +73,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Auto: as many ~430 px columns as fit, sharing the width evenly, unscaled (WrapPanel).
-    /// Fit / fixed columns: a uniform grid of natural-size cards (430 px cells, height of the tallest
-    /// card) scaled with a LayoutTransform; LayoutFit decides columns and scale.
+    /// Fit / fixed columns: cards packed into columns by their measured heights (MasonryPanel), scaled
+    /// with a LayoutTransform; LayoutFit decides columns, scale and the stretched column width.
     /// </summary>
     private void ApplyLayout()
     {
@@ -93,16 +94,17 @@ public partial class MainWindow : Window
         }
         else
         {
-            double cellWidth = TargetCardWidth;
-            double cardWidth = cellWidth - 2 * _vm.CardMarginSize;
-            changed = cardWidth != _vm.CardWidth;
-            _vm.CardWidth = cardWidth;
-            double cellHeight = NaturalCellHeight();
-            if (cellHeight <= 0)
-                cellHeight = cellWidth;
+            double[] heights = NaturalHeights();
+            if (heights.Length == 0 || heights.Any(h => h <= 0))
+                heights = Enumerable.Repeat(TargetCardWidth, Math.Max(1, _vm.Cards.Count)).ToArray();
             // 1 px slack so rounding never brings up a scrollbar in Fit.
-            FitResult fit = LayoutFit.Plan(_vm.Layout, width - 1, height - 1, cellWidth, cellHeight, _vm.Cards.Count, SystemParameters.VerticalScrollBarWidth);
-            changed |= fit.Columns != _vm.GridColumns;
+            FitResult fit = LayoutFit.Plan(_vm.Layout, width - 1, height - 1, heights, TargetCardWidth, SystemParameters.VerticalScrollBarWidth);
+            // Whole pixels, rounded down, so the stretched columns never exceed the window width.
+            double columnWidth = Math.Max(TargetCardWidth, Math.Floor(fit.ColumnWidth));
+            double cardWidth = columnWidth - 2 * _vm.CardMarginSize;
+            changed = cardWidth != _vm.CardWidth || columnWidth != _vm.ColumnWidth || fit.Columns != _vm.GridColumns;
+            _vm.CardWidth = cardWidth;
+            _vm.ColumnWidth = columnWidth;
             _vm.GridColumns = fit.Columns;
             // Hidden (not Disabled) keeps the height unconstrained, so cards still measure at natural height.
             changed |= SetPanel("GridCards", fit.Scale, fit.Scrolls ? ScrollBarVisibility.Visible : ScrollBarVisibility.Hidden, HorizontalAlignment.Center);
@@ -117,14 +119,14 @@ public partial class MainWindow : Window
             _layoutPasses = 0;
     }
 
-    /// <summary>Height of the tallest card including its margin, unscaled.</summary>
-    private double NaturalCellHeight()
+    /// <summary>Unscaled height of each card including its margin, in card order.</summary>
+    private double[] NaturalHeights()
     {
-        double max = 0;
-        for (int i = 0; i < CardsHost.Items.Count; i++)
+        var heights = new double[CardsHost.Items.Count];
+        for (int i = 0; i < heights.Length; i++)
             if (CardsHost.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement fe)
-                max = Math.Max(max, fe.DesiredSize.Height);
-        return Math.Ceiling(max);
+                heights[i] = Math.Ceiling(fe.DesiredSize.Height);
+        return heights;
     }
 
     private bool SetPanel(string panelKey, double scale, ScrollBarVisibility scroll, HorizontalAlignment align)
@@ -207,6 +209,7 @@ public partial class MainWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
+        NativeMethods.UseDarkTitleBar(Handle);
         if (_options.Screenshot is not null)
         {
             Left = 0;
@@ -270,6 +273,8 @@ public partial class MainWindow : Window
         if (ticks < _options.Ticks)
             return;
         _vm.Ticked -= OnTickForScreenshot;
+        if (_options.OpenLayoutBox)
+            LayoutBox.IsDropDownOpen = true;
         // Let layout and rendering catch up with the last update before capturing.
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
         {
@@ -294,6 +299,16 @@ public partial class MainWindow : Window
         int height = (int)Math.Ceiling(target.ActualHeight);
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(target);
+        // An open dropdown lives in its own popup window; draw it over the capture where it appears.
+        if (LayoutBox.IsDropDownOpen && LayoutBox.Template?.FindName("PART_Popup", LayoutBox) is System.Windows.Controls.Primitives.Popup { Child: FrameworkElement list })
+        {
+            list.UpdateLayout();
+            Point at = LayoutBox.TranslatePoint(new Point(0, LayoutBox.ActualHeight), target);
+            var overlay = new DrawingVisual();
+            using (DrawingContext dc = overlay.RenderOpen())
+                dc.DrawRectangle(new VisualBrush(list), null, new Rect(at, new Size(list.ActualWidth, list.ActualHeight)));
+            bitmap.Render(overlay);
+        }
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
