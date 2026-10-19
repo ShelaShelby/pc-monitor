@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -117,16 +116,8 @@ public partial class MainWindow : Window
     {
         if (_options.Screenshot is not null)
         {
-            // CI desktops are small (1024x768) and Windows caps windows to the screen size;
-            // lift that cap so the capture shows the layout at the requested size.
-            HwndSource.FromHwnd(Handle)?.AddHook(AllowLargerThanScreen);
             Left = 0;
             Top = 0;
-            if (_options.Width is double w && _options.Height is double h)
-            {
-                Width = w;
-                Height = h;
-            }
             return;
         }
         ScreenRect? restored = WindowPlacement.Restore(_settings.Window, NativeMethods.MonitorWorkAreas());
@@ -181,20 +172,6 @@ public partial class MainWindow : Window
 
     // ---------- screenshot mode (CI) ----------
 
-    private static IntPtr AllowLargerThanScreen(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        const int WM_GETMINMAXINFO = 0x0024;
-        if (msg == WM_GETMINMAXINFO)
-        {
-            NativeMethods.MINMAXINFO info = Marshal.PtrToStructure<NativeMethods.MINMAXINFO>(lParam);
-            info.ptMaxTrackSize = new NativeMethods.POINT { X = 8000, Y = 8000 };
-            info.ptMaxSize = new NativeMethods.POINT { X = 8000, Y = 8000 };
-            Marshal.StructureToPtr(info, lParam, false);
-            handled = true;
-        }
-        return IntPtr.Zero;
-    }
-
     private void OnTickForScreenshot(object? sender, int ticks)
     {
         if (ticks < _options.Ticks)
@@ -219,7 +196,26 @@ public partial class MainWindow : Window
     private void SaveScreenshot(string path)
     {
         FrameworkElement target = Root;
-        target.UpdateLayout();
+        if (_options.Width is double w && _options.Height is double h)
+        {
+            // CI desktops are small (1024x768) and Windows caps windows to the screen. Detach the
+            // content and lay it out off-screen at the requested size so the capture shows the real layout.
+            foreach (object key in Resources.Keys)
+                Root.Resources[key] = Resources[key];
+            Root.DataContext = _vm;
+            Content = null;
+            Root.Measure(new Size(w, h));
+            Root.Arrange(new Rect(0, 0, w, h));
+            Root.UpdateLayout();
+            ReflowCards();
+            Root.Measure(new Size(w, h));
+            Root.Arrange(new Rect(0, 0, w, h));
+            Root.UpdateLayout();
+        }
+        else
+        {
+            target.UpdateLayout();
+        }
         int width = (int)Math.Ceiling(target.ActualWidth);
         int height = (int)Math.Ceiling(target.ActualHeight);
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
