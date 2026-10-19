@@ -143,8 +143,15 @@
                     <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
                     <TextBlock Text="Layout (L)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
                     <ComboBox x:Name="LayoutBox" Width="130" VerticalAlignment="Center" Focusable="False" Style="{StaticResource DarkComboBox}"
-                              ItemsSource="{Binding LayoutOptions}" DisplayMemberPath="Name" SelectedValuePath="Mode"
-                              SelectedValue="{Binding Layout}" />
+                              ItemsSource="{Binding LayoutOptions}" SelectedValuePath="Mode"
+                              SelectedValue="{Binding Layout}">
+                        <!-- An ItemTemplate (not DisplayMemberPath) is also used for the closed box (SelectionBoxItemTemplate). -->
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type core:LayoutOption}">
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <CheckBox Content="Compact" IsChecked="{Binding Compact}" />
                     <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
                     <Button Style="{StaticResource DarkButton}" Content="Reset min/max" Command="{Binding ResetMinMaxCommand}" />

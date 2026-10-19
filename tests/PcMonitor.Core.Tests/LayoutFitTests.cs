@@ -155,7 +155,11 @@ public class LayoutFitTests
     public void EveryModeHasADropdownName()
     {
         foreach (LayoutMode mode in Enum.GetValues<LayoutMode>())
-            Assert.False(string.IsNullOrWhiteSpace(LayoutFit.Options.Single(o => o.Mode == mode).Name));
+        {
+            LayoutOption option = LayoutFit.Options.Single(o => o.Mode == mode);
+            Assert.False(string.IsNullOrWhiteSpace(option.Name));
+            Assert.Equal(option.Name, option.ToString());
+        }
         Assert.Equal(LayoutFit.Modes, LayoutFit.Options.Select(o => o.Mode).ToArray());
     }
 }

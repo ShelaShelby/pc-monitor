@@ -14,13 +14,14 @@ public class LayoutBoxTests
             var box = new ComboBox();
             box.BeginInit();
             box.ItemsSource = LayoutFit.Options;
-            box.DisplayMemberPath = "Name";
             box.SelectedValuePath = "Mode";
             box.EndInit();
             box.SelectedValue = mode;
             LayoutOption item = Assert.IsType<LayoutOption>(box.SelectedItem);
             Assert.Equal(mode, item.Mode);
             Assert.False(string.IsNullOrWhiteSpace(item.Name), $"{mode} has no text");
+            // The closed box shows SelectionBoxItem as text; it must read as the mode name.
+            Assert.Equal(item.Name, item.ToString());
         }
     });
 }

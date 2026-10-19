@@ -15,7 +15,9 @@
    and min/max half (fake data + widest values, °C/°F, normal/compact) with Segoe UI at 0.55, 0.68 and 1.0 and
    checks it against its column (widths compared to each other, no fixed pixel values).
 3. **Blank Layout dropdown**: the standard white ComboBox showed the app's light text. Dark ComboBox style
-   (box, text, arrow, popup, hover, selection) in `Theme.xaml`. Test: SelectedItem text non-empty for each mode.
+   (box, text, arrow, popup, hover, selection) in `Theme.xaml`. The first CI screenshot showed the record dump
+   ("LayoutOption { M…") in the closed box (DisplayMemberPath is not used there); now an ItemTemplate and
+   `LayoutOption.ToString() => Name`. Tests: SelectedItem text non-empty and equal to its name for each mode.
 4. **White title bar**: `DwmSetWindowAttribute` dark mode (20, fallback 19) after the handle exists; errors ignored.
 5. **NVMe shown as SCSI**: Interface now uses `MSFT_PhysicalDisk.BusType` (root\Microsoft\Windows\Storage,
    matched by disk number); 17 → "NVMe". The Microsoft docs page was not reachable from the build machine, so

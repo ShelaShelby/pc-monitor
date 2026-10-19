@@ -12,7 +12,11 @@ public enum LayoutMode
     Auto,
 }
 
-public sealed record LayoutOption(LayoutMode Mode, string Name);
+public sealed record LayoutOption(LayoutMode Mode, string Name)
+{
+    /// <summary>The name, so any control that shows the item as text shows the mode name (not the record dump).</summary>
+    public override string ToString() => Name;
+}
 
 /// <param name="Columns">Number of columns.</param>
 /// <param name="Scale">Uniform scale applied to the whole card area.</param>
