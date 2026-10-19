@@ -23,7 +23,7 @@ public sealed class FakeSensorProvider : ISensorProvider
 
     public DriverStatus PawnIo => _pawnIoInstalled
         ? new DriverStatus(DriverState.NotApplicable, "simulated")
-        : new DriverStatus(DriverState.Missing, "simulated: PawnIO missing");
+        : new DriverStatus(DriverState.Missing, "Simulated: PawnIO driver is not installed.");
 
     public void Open() { }
 

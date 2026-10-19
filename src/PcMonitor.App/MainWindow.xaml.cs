@@ -36,6 +36,13 @@ public partial class MainWindow : Window
         {
             Width = w;
             Height = h;
+            if (options.Screenshot is not null)
+            {
+                // CI desktops are small (1024x768) and Windows caps the window to the screen.
+                // Lay the content out at the requested size so the capture shows the real layout.
+                Root.Width = w;
+                Root.Height = h;
+            }
         }
 
         SourceInitialized += OnSourceInitialized;
