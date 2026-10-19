@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -36,13 +37,6 @@ public partial class MainWindow : Window
         {
             Width = w;
             Height = h;
-            if (options.Screenshot is not null)
-            {
-                // CI desktops are small (1024x768) and Windows caps the window to the screen.
-                // Lay the content out at the requested size so the capture shows the real layout.
-                Root.Width = w;
-                Root.Height = h;
-            }
         }
 
         SourceInitialized += OnSourceInitialized;
@@ -122,7 +116,19 @@ public partial class MainWindow : Window
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         if (_options.Screenshot is not null)
-            return; // deterministic size/position for CI screenshots
+        {
+            // CI desktops are small (1024x768) and Windows caps windows to the screen size;
+            // lift that cap so the capture shows the layout at the requested size.
+            HwndSource.FromHwnd(Handle)?.AddHook(AllowLargerThanScreen);
+            Left = 0;
+            Top = 0;
+            if (_options.Width is double w && _options.Height is double h)
+            {
+                Width = w;
+                Height = h;
+            }
+            return;
+        }
         ScreenRect? restored = WindowPlacement.Restore(_settings.Window, NativeMethods.MonitorWorkAreas());
         if (restored is { } r)
         {
@@ -174,6 +180,20 @@ public partial class MainWindow : Window
     }
 
     // ---------- screenshot mode (CI) ----------
+
+    private static IntPtr AllowLargerThanScreen(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_GETMINMAXINFO = 0x0024;
+        if (msg == WM_GETMINMAXINFO)
+        {
+            NativeMethods.MINMAXINFO info = Marshal.PtrToStructure<NativeMethods.MINMAXINFO>(lParam);
+            info.ptMaxTrackSize = new NativeMethods.POINT { X = 8000, Y = 8000 };
+            info.ptMaxSize = new NativeMethods.POINT { X = 8000, Y = 8000 };
+            Marshal.StructureToPtr(info, lParam, false);
+            handled = true;
+        }
+        return IntPtr.Zero;
+    }
 
     private void OnTickForScreenshot(object? sender, int ticks)
     {

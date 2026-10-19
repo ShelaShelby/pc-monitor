@@ -18,6 +18,8 @@
 - Drive health/hours/temperature: `n/a` if the drive or controller driver does not pass SMART through.
 
 ## Known problems / limits
-- Not run on the target PC: no Windows here. Real hardware paths are compiled and smoke-tested only on the CI VM (no GPU, no SMART, no PawnIO).
+- Not run on the target PC: no Windows here. The real provider is smoke-tested on the CI VM (Hyper-V, EPYC, no GPU/SMART/PawnIO):
+  it starts, finds CPU/RAM/network, shows n/a with reasons for the rest, and renders. RX 9060 XT / NVMe / SuperIO paths are untested on real hardware.
+- GPU via ADL fallback: struct layout follows AMD's adl_structures.h but was never run against an RX 9000 driver.
 - GPU edge and motherboard thresholds are derived/generic (no vendor limit published) — marked as such in `ThresholdTable`.
 - The exe is unsigned (SmartScreen warning).
