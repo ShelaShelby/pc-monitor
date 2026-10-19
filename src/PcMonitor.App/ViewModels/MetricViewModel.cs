@@ -9,6 +9,7 @@ public sealed class MetricViewModel : ObservableObject
     private string _label = "";
     private string _value = Formatter.NotAvailable;
     private string _unit = "";
+    private MetricUnit _valueUnit = MetricUnit.Count;
     private string _minMax = "";
     private string? _reason;
     private Brush _brush = Palette.Text;
@@ -23,6 +24,9 @@ public sealed class MetricViewModel : ObservableObject
     public string Label { get => _label; private set => Set(ref _label, value); }
     public string Value { get => _value; private set => Set(ref _value, value); }
     public string Unit { get => _unit; private set => Set(ref _unit, value); }
+
+    /// <summary>Unit of the raw values (for the sparkline range).</summary>
+    public MetricUnit ValueUnit { get => _valueUnit; private set => Set(ref _valueUnit, value); }
     public string MinMax { get => _minMax; private set => Set(ref _minMax, value); }
 
     /// <summary>Why the value is n/a; null when there is a value.</summary>
@@ -45,6 +49,7 @@ public sealed class MetricViewModel : ObservableObject
         FormattedValue f = Formatter.Format(metric, tempUnit);
         Value = f.Value;
         Unit = f.Unit;
+        ValueUnit = metric.Unit;
         Reason = metric.Unit != MetricUnit.Text && !metric.Reading.HasValue ? metric.Reading.Reason : null;
         MinMax = history is null || metric.Unit == MetricUnit.Text
             ? ""

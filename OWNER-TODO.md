@@ -15,3 +15,4 @@
    source LibreHardwareMonitor found.
 7. If Drive D is not your second NVMe, the card maps by drive letter: give the second drive the letter D:
    in Disk Management, or tell the developer which letter to use.
+8. If "Clock (avg)" / "Clock (max core)" still look wrong in 0.2, send `%LOCALAPPDATA%\PcMonitor\pc-monitor.log` (it lists every CPU clock sensor).

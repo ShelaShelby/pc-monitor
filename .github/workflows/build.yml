@@ -54,8 +54,9 @@ jobs:
           New-Item -ItemType Directory -Force artifacts/shots | Out-Null
           $shots = (Resolve-Path "artifacts/shots").Path
           $runs = @(
-            @{ name = "fake-1920x1080"; args = @("--fake-no-pawnio", "--size", "1920x1080", "--ticks", "70") },
-            @{ name = "fake-specs-1280x1000"; args = @("--fake", "--show-specs", "--size", "1280x1000", "--ticks", "70") }
+            @{ name = "fake-fit-1024x768"; args = @("--fake", "--layout", "fit", "--size", "1024x768", "--ticks", "70") },
+            @{ name = "fake-fit-compact-1024x768"; args = @("--fake", "--layout", "fit", "--compact", "--size", "1024x768", "--ticks", "70") },
+            @{ name = "fake-nopawnio-specs-2col-1024x768"; args = @("--fake-no-pawnio", "--show-specs", "--layout", "2", "--size", "1024x768", "--ticks", "70") }
           )
           foreach ($r in $runs) {
             $png = Join-Path $shots "$($r.name).png"
@@ -119,6 +120,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "latest" \
-            --notes "pc-monitor 0.1 built from ${GITHUB_SHA}. Windows 11 x64, self-contained single exe (asks for administrator rights). See README.md and OWNER-TODO.md." \
+            --notes "pc-monitor 0.2 built from ${GITHUB_SHA}. Windows 11 x64, self-contained single exe (asks for administrator rights). See README.md and OWNER-TODO.md." \
             --latest
           gh release view latest --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,assets

@@ -26,6 +26,12 @@ public sealed class AppSettings
 
     public bool AlwaysOnTop { get; set; }
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public LayoutMode Layout { get; set; } = LayoutMode.Fit;
+
+    /// <summary>Hide specs and tighten row spacing.</summary>
+    public bool Compact { get; set; }
+
     public WindowBounds? Window { get; set; }
 
     /// <summary>Snap to the nearest allowed interval (0.5 / 1 / 2 s); anything invalid becomes 1 s.</summary>
@@ -41,6 +47,8 @@ public sealed class AppSettings
         UpdateIntervalSeconds = NormalizeInterval(UpdateIntervalSeconds);
         if (!Enum.IsDefined(TemperatureUnit))
             TemperatureUnit = TemperatureUnit.Celsius;
+        if (!Enum.IsDefined(Layout))
+            Layout = LayoutMode.Fit;
         return this;
     }
 

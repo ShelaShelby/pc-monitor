@@ -25,12 +25,16 @@ public class SettingsTests
             UpdateIntervalSeconds = 2,
             TemperatureUnit = TemperatureUnit.Fahrenheit,
             AlwaysOnTop = true,
+            Layout = LayoutMode.Columns3,
+            Compact = true,
             Window = new WindowBounds { Left = 1920, Top = 10, Width = 1200, Height = 900, Monitor = @"\\.\DISPLAY2" },
         };
         AppSettings back = AppSettings.FromJson(s.ToJson());
         Assert.Equal(2, back.UpdateIntervalSeconds);
         Assert.Equal(TemperatureUnit.Fahrenheit, back.TemperatureUnit);
         Assert.True(back.AlwaysOnTop);
+        Assert.Equal(LayoutMode.Columns3, back.Layout);
+        Assert.True(back.Compact);
         Assert.Equal(1920, back.Window!.Left);
         Assert.Equal(@"\\.\DISPLAY2", back.Window.Monitor);
     }
@@ -45,7 +49,13 @@ public class SettingsTests
         AppSettings s = AppSettings.FromJson(json);
         Assert.Equal(1.0, s.UpdateIntervalSeconds);
         Assert.Equal(TemperatureUnit.Celsius, s.TemperatureUnit);
+        Assert.Equal(LayoutMode.Fit, s.Layout);
+        Assert.False(s.Compact);
     }
+
+    [Fact]
+    public void LayoutIsStoredByName() =>
+        Assert.Contains("\"Layout\": \"Columns2\"", new AppSettings { Layout = LayoutMode.Columns2 }.ToJson());
 
     private static readonly ScreenRect Primary = new(0, 0, 1920, 1040);
     private static readonly ScreenRect Second = new(1920, 0, 2560, 1400);

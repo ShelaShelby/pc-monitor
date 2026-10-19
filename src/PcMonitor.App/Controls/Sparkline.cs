@@ -23,6 +23,13 @@ public sealed class Sparkline : FrameworkElement
         nameof(Maximum), typeof(double), typeof(Sparkline),
         new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>Unit of the values; decides the minimum visible span of the auto range.</summary>
+    public static readonly DependencyProperty UnitProperty = DependencyProperty.Register(
+        nameof(Unit), typeof(MetricUnit), typeof(Sparkline),
+        new FrameworkPropertyMetadata(MetricUnit.Count, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public MetricUnit Unit { get => (MetricUnit)GetValue(UnitProperty); set => SetValue(UnitProperty, value); }
+
     public IReadOnlyList<HistoryPoint>? Points { get => (IReadOnlyList<HistoryPoint>?)GetValue(PointsProperty); set => SetValue(PointsProperty, value); }
     public Brush Stroke { get => (Brush)GetValue(StrokeProperty); set => SetValue(StrokeProperty, value); }
     public double Minimum { get => (double)GetValue(MinimumProperty); set => SetValue(MinimumProperty, value); }
@@ -55,18 +62,7 @@ public sealed class Sparkline : FrameworkElement
         if (values.Length == 0)
             return;
 
-        double lo = double.IsNaN(Minimum) ? values.Min() : Minimum;
-        double hi = double.IsNaN(Maximum) ? values.Max() : Maximum;
-        if (double.IsNaN(Minimum) || double.IsNaN(Maximum))
-        {
-            // Auto range with a little headroom; flat lines sit in the middle.
-            double span = hi - lo;
-            double pad = span < 1e-9 ? Math.Max(1, Math.Abs(hi) * 0.1) : span * 0.15;
-            if (double.IsNaN(Minimum)) lo -= pad;
-            if (double.IsNaN(Maximum)) hi += pad;
-        }
-        if (hi - lo < 1e-9)
-            hi = lo + 1;
+        (double lo, double hi) = SparkRange.Compute(values, Unit, Minimum, Maximum);
 
         double latest = pts[^1].TimeSeconds;
         double start = latest - WindowSeconds;

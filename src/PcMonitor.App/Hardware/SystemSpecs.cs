@@ -114,7 +114,7 @@ internal static class SystemSpecs
         }));
 
         // RAM
-        List<Dictionary<string, object?>> sticks = Wmi.Query("SELECT Capacity, Speed, ConfiguredClockSpeed, Manufacturer, PartNumber, DeviceLocator, SMBIOSMemoryType FROM Win32_PhysicalMemory");
+        List<Dictionary<string, object?>> sticks = Wmi.Query("SELECT Capacity, Speed, ConfiguredClockSpeed, Manufacturer, PartNumber, DeviceLocator, BankLabel, SMBIOSMemoryType FROM Win32_PhysicalMemory");
         ulong? slots = Wmi.Query("SELECT MemoryDevices FROM Win32_PhysicalMemoryArray").Select(r => r.ULong("MemoryDevices")).Where(v => v.HasValue).Sum(v => (long)v!.Value) is long s and > 0 ? (ulong)s : null;
         var ram = new List<SpecLine>();
         ulong total = (ulong)sticks.Sum(x => (decimal)(x.ULong("Capacity") ?? 0));
@@ -123,9 +123,14 @@ internal static class SystemSpecs
         ulong? rated = sticks.Select(x => x.ULong("Speed")).Max();
         ulong? configured = sticks.Select(x => x.ULong("ConfiguredClockSpeed")).Max();
         ram.Add(new SpecLine("Speed", configured is > 0 ? $"{configured} MT/s configured" + (rated is > 0 && rated != configured ? $" (rated {rated})" : "") : "n/a"));
-        foreach (Dictionary<string, object?> stick in sticks)
-            ram.Add(new SpecLine(stick.Str("DeviceLocator") ?? "DIMM",
+        // Some boards report the same DeviceLocator for every stick; RamLabels numbers them and adds BankLabel.
+        IReadOnlyList<string> labels = RamLabels.For(sticks.Select(x => new MemoryStick(x.Str("DeviceLocator"), x.Str("BankLabel"))).ToArray());
+        for (int i = 0; i < sticks.Count; i++)
+        {
+            Dictionary<string, object?> stick = sticks[i];
+            ram.Add(new SpecLine(labels[i],
                 $"{Size(stick.ULong("Capacity"))} {MemoryType(stick.ULong("SMBIOSMemoryType"))} {stick.Str("Manufacturer")} {stick.Str("PartNumber")}".Trim()));
+        }
         list.Add(new PartSpecs(PartKind.Ram, ram));
 
         // Drives

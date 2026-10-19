@@ -17,11 +17,14 @@ Built with C# / .NET 8 WPF and [LibreHardwareMonitorLib](https://github.com/Libr
 
 `pc-monitor.exe --fake` runs on simulated values (FakeSensorProvider), useful without hardware.
 
+## Layouts
+Toolbar **Layout** (or key **L** to cycle): **Fit to window** (default; all cards scaled to fit, no scrolling,
+never below 55 % — then it scrolls), **2 / 3 / 4 columns** (scaled to the width, scrolls vertically),
+**Auto** (unscaled wrapping). **Compact** hides specs and tightens spacing. Both are remembered.
+
 ## PawnIO (CPU temperature)
-Ryzen CPU temperatures, clocks and power, and the motherboard fan/temperature chip, need the
-**PawnIO** driver (https://pawnio.eu). Without it the app shows a banner with a link and a
-Recheck button; everything else keeps working. WinRing0 is never used.
+Ryzen CPU temperatures, clocks and power, and the motherboard fan/temperature chip, need the **PawnIO** driver
+(https://pawnio.eu). Without it a banner shows a link and a Recheck button; the rest keeps working. WinRing0 is never used.
 
 ## Build
-`dotnet test` / `dotnet publish src/PcMonitor.App -c Release -r win-x64` on Windows with the .NET 8 SDK.
-CI (`.github/workflows/build.yml`) builds, tests, publishes and updates the `latest` release on every push to main.
+`dotnet test` / `dotnet publish src/PcMonitor.App -c Release -r win-x64` (.NET 8 SDK). CI builds, tests, publishes and updates the `latest` release on every push to main.

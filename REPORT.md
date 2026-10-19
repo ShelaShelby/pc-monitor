@@ -1,27 +1,35 @@
-# pc-monitor 0.1 — report
+# pc-monitor 0.2 — report
 
-## Works
-- One dark window, 7 cards (CPU, GPU, RAM, Drive C, Drive D, Motherboard/Fans, Network), reflowing to the window width.
-- Per card: two large values with min/max since start and 60 s sparklines, all other values with min/max, specs section (toolbar "Show specs").
-- Settings: update rate 0.5/1/2 s, °C/°F, always-on-top, F11 fullscreen; window position/size/monitor remembered.
-- PawnIO detection at start (registry + device open), banner with pawnio.eu link and Recheck (reopens LibreHardwareMonitor).
-- Sensors via LibreHardwareMonitorLib 0.9.6 (latest stable); GPU values missing there are read from the AMD driver's ADL PMLog.
-- Specs from WMI/registry: CPU name, cores/threads, base clock, L3; RAM size/speed/slots/modules; GPU model/VRAM/driver; drive models; board/BIOS.
-- Temperature colours: CPU Tjmax 89 °C (AMD), GPU junction 110 °C (AMD), GDDR6 95/105 °C (Micron), DDR5 85/95 °C (JEDEC), NVMe from the drive's own WCTEMP/CCTEMP.
-- FakeSensorProvider (`--fake`), unit tests for history, min/max, conversion, thresholds, formatting, n/a, settings.
-- CI on windows-latest: build, test, single-file publish, screenshots, release `latest` targeting the head commit.
+## Fixed (from Alex's screenshot)
+1. **0 readings at start**: LibreHardwareMonitor gives 0 for Ryzen temperature, clocks and package power before the first
+   sample. CPU temperature (Tctl/Tdie, CCDs), clocks and package power of exactly 0 are now `n/a (waiting for first sample)`,
+   so min/max and sparklines never see them. GPU clocks/power: same, only while the GPU temperature is missing too.
+   Fan 0 RPM and 0 % load stay real. Logic in `Core/SensorGuards.cs`, tests in `SensorGuardTests`.
+2. **Clock (avg) = Clock (max core)**: cause not proven (no access to the PC). Now: avg = mean of `Core #n (Effective)` if
+   present, else `Cores (Average)`, else mean of `Core #n`; max = highest `Core #n`. Every CPU clock sensor with its value,
+   and the chosen sources, are written once to `pc-monitor.log` at the first non-zero read. Equal values are still both shown.
+3. **"DIMM 1" twice**: WMI query adds `BankLabel`; sticks are labelled `Stick n: <DeviceLocator> / <BankLabel>`
+   (`Core/RamLabels.cs`, `RamLabelTests`).
+4. **Sparklines exaggerating**: auto range grows around the data midpoint to at least 10 °C / 10 % / 500 MHz / 10 W /
+   300 RPM / 1 GB / 1 MB/s (`Core/SparkRange.cs`, `SparkRangeTests`).
 
-## n/a and why
-- CPU temperature/clocks/power, motherboard fans/temps, DIMM temps: `n/a (needs PawnIO driver)` until PawnIO is installed.
-- CPU boost clock in specs: Windows/WMI does not report it; the live "Clock (max core)" shows the highest observed clock.
-- GPU memory temperature, hotspot, fan: shown only if the driver exposes them (LibreHardwareMonitor, then ADL); otherwise `n/a` with reason.
-- Drive health/hours/temperature: `n/a` if the drive or controller driver does not pass SMART through.
+## New: layouts
+- Toolbar "Layout" dropdown + hotkey L: Fit to window (default), 2/3/4 columns, Auto (0.1 wrapping). "Compact" checkbox
+  hides specs, tightens row/card spacing and lowers the sparklines. Both saved in settings.json.
+- Fit: `LayoutFit.ChooseFit` tries 1..n columns of uniform cells (430 px wide, height of the tallest card) and takes the
+  largest scale (ties: fewer columns); applied as a LayoutTransform. Below 0.55 it stays at 0.55, uses the columns that
+  fit the width and scrolls vertically. Fixed columns scale to the width only and scroll vertically if needed (no 0.55
+  floor there, so all chosen columns stay visible). Upscaling above 1 is allowed when the window is large.
+- Tests: `LayoutFitTests` (1920x1080 7 cards, tall, tiny → 0.55 floor, 1 card, fixed columns, scrollbar, L cycling),
+  expected numbers worked out by hand in the test comments.
 
-## Known problems / limits
-- Not run on the target PC: no Windows here. The real provider is smoke-tested on the CI VM (Hyper-V, EPYC, no GPU/SMART/PawnIO):
-  it starts, finds CPU/RAM/network, shows n/a with reasons for the rest, and renders. RX 9060 XT / NVMe / SuperIO paths are untested on real hardware.
-- GPU via ADL fallback: struct layout follows AMD's adl_structures.h but was never run against an RX 9000 driver.
-- GPU edge and motherboard thresholds are derived/generic (no vendor limit published) — marked as such in `ThresholdTable`.
-- The exe is unsigned (SmartScreen warning).
-- CI screenshots are capped at the runner's 1024x768 desktop (3 attempts to render larger failed, skipped);
-  layout/reflow was checked at that size and in a 1920-wide capture (3 columns) before the cap applied.
+## Checks
+- `dotnet build` + `dotnet test` (Core tests) on Linux during work; full build/test/publish on the Windows CI.
+- CI screenshots (capped at the runner's 1024x768 desktop), all with `--fake`: Fit, Fit + Compact,
+  and no-PawnIO + specs in 2 columns. They are on the `ci-screenshots` branch.
+
+## Still open / limits
+- Not run on the target PC. The clock question (bug 2) needs the new log lines from Alex (OWNER-TODO 8).
+- The Layout dropdown uses the standard Windows ComboBox look (not dark-themed).
+- At 1024x768 Fit gives ~0.6 scale (4 columns × 2 rows); text is small but everything is visible.
+- Unchanged from 0.1: ADL fallback untested on an RX 9000 driver, generic GPU-edge/board thresholds, unsigned exe.

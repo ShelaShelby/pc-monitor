@@ -164,31 +164,55 @@ internal sealed class LhmSensorProvider : ISensorProvider
         string tempReason = PawnReady ? "not exposed by sensor" : NeedsPawnIo;
         ISensor? temp = Find(cpu, SensorType.Temperature, "Core (Tctl/Tdie)", "Core (Tctl)", "Core (Tdie)", "CPU Package", "Package")
                         ?? cpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Temperature);
+        // Right after start LibreHardwareMonitor reports 0 for Ryzen temperature, clocks and power
+        // until the first real sample; SensorGuards turns those into "waiting for first sample"
+        // (or "needs PawnIO driver" while the driver is missing, since then they never update).
+        string zero = PawnReady ? SensorGuards.WaitingForFirstSample : NeedsPawnIo;
         var metrics = new List<Metric>
         {
             new(MetricKeys.Load, "Load", MetricUnit.Percent, Reading.Of(Val(Find(cpu, SensorType.Load, "CPU Total")), "not exposed by sensor")),
-            new(MetricKeys.Temperature, "Tctl/Tdie", MetricUnit.Celsius, Reading.Of(Val(temp), tempReason), TemperatureZone.CpuCore),
+            new(MetricKeys.Temperature, "Tctl/Tdie", MetricUnit.Celsius, SensorGuards.CpuValue(Val(temp), tempReason, zero), TemperatureZone.CpuCore),
         };
         foreach (ISensor ccd in cpu.Sensors.Where(s => s.SensorType == SensorType.Temperature && s.Name.StartsWith("CCD", StringComparison.OrdinalIgnoreCase)
                                                         && !s.Name.Contains("Max", StringComparison.OrdinalIgnoreCase)
                                                         && !s.Name.Contains("Average", StringComparison.OrdinalIgnoreCase)))
-            metrics.Add(new Metric("ccd:" + ccd.Name, ccd.Name.Replace(" (Tdie)", ""), MetricUnit.Celsius, Reading.Of(Val(ccd), tempReason), TemperatureZone.CpuCore));
+            metrics.Add(new Metric("ccd:" + ccd.Name, ccd.Name.Replace(" (Tdie)", ""), MetricUnit.Celsius, SensorGuards.CpuValue(Val(ccd), tempReason, zero), TemperatureZone.CpuCore));
         if (!metrics.Any(m => m.Key.StartsWith("ccd:", StringComparison.Ordinal)))
             metrics.Add(new Metric("ccd:CCD1", "CCD1", MetricUnit.Celsius, Reading.Unavailable(tempReason), TemperatureZone.CpuCore));
 
-        double[] coreClocks = cpu.Sensors
-            .Where(s => s.SensorType == SensorType.Clock && s.Name.StartsWith("Core #", StringComparison.Ordinal) && !s.Name.Contains("Effective", StringComparison.Ordinal))
-            .Select(Val).Where(v => v is > 0).Select(v => v!.Value).ToArray();
-        double? avgClock = Val(Find(cpu, SensorType.Clock, "Cores (Average)")) ?? (coreClocks.Length > 0 ? coreClocks.Average() : null);
+        NamedValue[] clocks = cpu.Sensors.Where(s => s.SensorType == SensorType.Clock).Select(s => new NamedValue(s.Name, Val(s))).ToArray();
+        ClockResult avgClock = CpuClocks.Average(clocks);
+        ClockResult maxClock = CpuClocks.MaxCore(clocks);
+        LogClocksOnce(clocks, avgClock, maxClock);
         string clockReason = PawnReady ? "not exposed by sensor" : NeedsPawnIo;
-        metrics.Add(new Metric(MetricKeys.CoreClock, "Clock (avg)", MetricUnit.MegaHertz, Reading.Of(avgClock, clockReason)));
-        metrics.Add(new Metric(MetricKeys.MaxCoreClock, "Clock (max core)", MetricUnit.MegaHertz,
-            Reading.Of(coreClocks.Length > 0 ? coreClocks.Max() : null, clockReason)));
+        metrics.Add(new Metric(MetricKeys.CoreClock, "Clock (avg)", MetricUnit.MegaHertz, avgClock.ToReading(clockReason, zero)));
+        metrics.Add(new Metric(MetricKeys.MaxCoreClock, "Clock (max core)", MetricUnit.MegaHertz, maxClock.ToReading(clockReason, zero)));
         metrics.Add(new Metric(MetricKeys.Power, "Package power", MetricUnit.Watt,
-            Reading.Of(Val(Find(cpu, SensorType.Power, "Package", "CPU Package")), PawnReady ? "not exposed by sensor" : NeedsPawnIo)));
+            SensorGuards.CpuValue(Val(Find(cpu, SensorType.Power, "Package", "CPU Package")), PawnReady ? "not exposed by sensor" : NeedsPawnIo, zero)));
 
         string? notice = PawnReady ? null : "Temperatures, clocks and power need the PawnIO driver.";
         return new PartSnapshot(PartKind.Cpu, "CPU", cpu.Name, metrics, notice);
+    }
+
+    private int _clockLogReads;
+
+    /// <summary>
+    /// Writes every CPU clock sensor to the log once, at the first read with a non-zero clock
+    /// (or after 10 reads), so a wrong-looking clock can be diagnosed from pc-monitor.log.
+    /// </summary>
+    private void LogClocksOnce(NamedValue[] clocks, ClockResult avg, ClockResult max)
+    {
+        if (_clockLogReads < 0)
+            return;
+        _clockLogReads++;
+        if (_clockLogReads < 10 && !clocks.Any(c => c.Value > 0))
+            return;
+        Log.Write($"CPU clock sensors ({clocks.Length}) at read {_clockLogReads}:");
+        _clockLogReads = -1;
+        foreach (NamedValue c in clocks)
+            Log.Write($"  Clock '{c.Name}' = {(c.Value.HasValue ? c.Value.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) : "null")} MHz");
+        Log.Write($"  avg from {avg.Source}: {avg.Value?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}; "
+                  + $"max from {max.Source}: {max.Value?.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}");
     }
 
     // ---------- GPU ----------
@@ -223,21 +247,23 @@ internal sealed class LhmSensorProvider : ISensorProvider
         double? vramTotalMb = Val(Find(gpu, SensorType.SmallData, "GPU Memory Total")) ?? Val(Find(gpu, SensorType.SmallData, "D3D Dedicated Memory Total"));
         double? vramTotalBytes = vramTotalMb * UnitConversion.BytesPerMiB ?? SystemSpecs.GpuMemoryBytes(gpu?.Name);
 
+        Reading edge = Reading.Of(Val(Find(gpu, SensorType.Temperature, "GPU Core")) ?? FromAdl(AdlFallback.TempEdge, AdlFallback.TempGfx), missing);
+        // 0 MHz / 0 W together with no temperature is the driver not having sampled yet, not an idle GPU.
+        bool tempMissing = !edge.HasValue;
         var metrics = new List<Metric>
         {
             new(MetricKeys.Load, "Load", MetricUnit.Percent, Reading.Of(Val(Find(gpu, SensorType.Load, "GPU Core")) ?? FromAdl(AdlFallback.ActivityGfx), missing)),
-            new(MetricKeys.Temperature, "Edge", MetricUnit.Celsius,
-                Reading.Of(Val(Find(gpu, SensorType.Temperature, "GPU Core")) ?? FromAdl(AdlFallback.TempEdge, AdlFallback.TempGfx), missing), TemperatureZone.GpuEdge),
+            new(MetricKeys.Temperature, "Edge", MetricUnit.Celsius, edge, TemperatureZone.GpuEdge),
             new(MetricKeys.Hotspot, "Hotspot", MetricUnit.Celsius,
                 Reading.Of(Val(Find(gpu, SensorType.Temperature, "GPU Hot Spot")) ?? FromAdl(AdlFallback.TempHotspot), missing), TemperatureZone.GpuHotspot),
             new(MetricKeys.MemoryTemperature, "Memory temp", MetricUnit.Celsius,
                 Reading.Of(Val(Find(gpu, SensorType.Temperature, "GPU Memory")) ?? FromAdl(AdlFallback.TempMem), missing), TemperatureZone.GpuMemory),
             new(MetricKeys.VramUsed, "VRAM used", MetricUnit.Bytes, Reading.Of(vramUsedMb * UnitConversion.BytesPerMiB, missing)),
             new(MetricKeys.VramTotal, "VRAM total", MetricUnit.Bytes, Reading.Of(vramTotalBytes, missing)),
-            new(MetricKeys.CoreClock, "Core clock", MetricUnit.MegaHertz, Reading.Of(Val(Find(gpu, SensorType.Clock, "GPU Core")) ?? FromAdl(AdlFallback.ClkGfx), missing)),
-            new(MetricKeys.MemoryClock, "Memory clock", MetricUnit.MegaHertz, Reading.Of(Val(Find(gpu, SensorType.Clock, "GPU Memory")) ?? FromAdl(AdlFallback.ClkMem), missing)),
+            new(MetricKeys.CoreClock, "Core clock", MetricUnit.MegaHertz, SensorGuards.GpuClockOrPower(Val(Find(gpu, SensorType.Clock, "GPU Core")) ?? FromAdl(AdlFallback.ClkGfx), tempMissing, missing)),
+            new(MetricKeys.MemoryClock, "Memory clock", MetricUnit.MegaHertz, SensorGuards.GpuClockOrPower(Val(Find(gpu, SensorType.Clock, "GPU Memory")) ?? FromAdl(AdlFallback.ClkMem), tempMissing, missing)),
             new(MetricKeys.Power, "Power", MetricUnit.Watt,
-                Reading.Of(Val(Find(gpu, SensorType.Power, "GPU Package", "GPU PPT", "GPU Core")) ?? FromAdl(AdlFallback.BoardPower, AdlFallback.AsicPower), missing)),
+                SensorGuards.GpuClockOrPower(Val(Find(gpu, SensorType.Power, "GPU Package", "GPU PPT", "GPU Core")) ?? FromAdl(AdlFallback.BoardPower, AdlFallback.AsicPower), tempMissing, missing)),
             new(MetricKeys.Fan, "Fan", MetricUnit.Rpm, Reading.Of(Val(Find(gpu, SensorType.Fan, "GPU Fan")) ?? FromAdl(AdlFallback.FanRpm), missing)),
             new(MetricKeys.FanPercent, "Fan duty", MetricUnit.Percent, Reading.Of(Val(Find(gpu, SensorType.Control, "GPU Fan")) ?? FromAdl(AdlFallback.FanPercent), missing)),
         };

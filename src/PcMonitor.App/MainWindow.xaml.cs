@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using PcMonitor.App.ViewModels;
 using PcMonitor.Core;
 
@@ -27,6 +29,10 @@ public partial class MainWindow : Window
         _provider = provider;
         _settings = settings;
         _options = options;
+        if (options.Layout is LayoutMode layout)
+            settings.Layout = layout;
+        if (options.Compact)
+            settings.Compact = true;
         _vm = new MainViewModel(provider, settings, virtualTime: options.Screenshot is not null && options.Fake)
         {
             ShowSpecs = options.ShowSpecs,
@@ -40,7 +46,14 @@ public partial class MainWindow : Window
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
-        Scroller.SizeChanged += (_, _) => ReflowCards();
+        Scroller.SizeChanged += (_, _) => ApplyLayout();
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MainViewModel.Layout) or nameof(MainViewModel.Compact) or nameof(MainViewModel.ShowSpecs))
+                ApplyLayout();
+        };
+        // Card heights change when sensors appear or values wrap; re-fit after each update.
+        _vm.Ticked += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => ApplyLayout()));
         LocationChanged += (_, _) => RememberNormalRect();
         SizeChanged += (_, _) => RememberNormalRect();
         KeyDown += OnKeyDown;
@@ -49,20 +62,95 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        ReflowCards();
+        ApplyLayout();
         if (_options.Screenshot is not null)
             _vm.Ticked += OnTickForScreenshot;
         _ = _vm.RunAsync();
     }
 
-    /// <summary>Cards reflow to the window: as many ~430 px columns as fit, sharing the width evenly.</summary>
-    private void ReflowCards()
+    private int _layoutPasses;
+
+    /// <summary>
+    /// Auto: as many ~430 px columns as fit, sharing the width evenly, unscaled (WrapPanel).
+    /// Fit / fixed columns: a uniform grid of natural-size cards (430 px cells, height of the tallest
+    /// card) scaled with a LayoutTransform; LayoutFit decides columns and scale.
+    /// </summary>
+    private void ApplyLayout()
     {
-        double available = Scroller.ViewportWidth > 0 ? Scroller.ViewportWidth : Scroller.ActualWidth - 16;
-        if (available <= 0)
+        double width = Scroller.ActualWidth - Scroller.Padding.Left - Scroller.Padding.Right;
+        double height = Scroller.ActualHeight - Scroller.Padding.Top - Scroller.Padding.Bottom;
+        if (width <= 0 || height <= 0)
             return;
-        int columns = Math.Max(1, (int)Math.Floor(available / TargetCardWidth));
-        _vm.CardWidth = Math.Max(300, Math.Floor(available / columns) - 16 - 1);
+        bool changed;
+        if (_vm.Layout == LayoutMode.Auto)
+        {
+            changed = SetPanel("WrapCards", 1, ScrollBarVisibility.Auto, HorizontalAlignment.Stretch);
+            double available = Scroller.ViewportWidth > 0 ? Scroller.ViewportWidth : width;
+            int columns = Math.Max(1, (int)Math.Floor(available / TargetCardWidth));
+            double cardWidth = Math.Max(300, Math.Floor(available / columns) - 2 * _vm.CardMarginSize - 1);
+            changed |= cardWidth != _vm.CardWidth;
+            _vm.CardWidth = cardWidth;
+        }
+        else
+        {
+            double cellWidth = TargetCardWidth;
+            double cardWidth = cellWidth - 2 * _vm.CardMarginSize;
+            changed = cardWidth != _vm.CardWidth;
+            _vm.CardWidth = cardWidth;
+            double cellHeight = NaturalCellHeight();
+            if (cellHeight <= 0)
+                cellHeight = cellWidth;
+            // 1 px slack so rounding never brings up a scrollbar in Fit.
+            FitResult fit = LayoutFit.Plan(_vm.Layout, width - 1, height - 1, cellWidth, cellHeight, _vm.Cards.Count, SystemParameters.VerticalScrollBarWidth);
+            changed |= fit.Columns != _vm.GridColumns;
+            _vm.GridColumns = fit.Columns;
+            // Hidden (not Disabled) keeps the height unconstrained, so cards still measure at natural height.
+            changed |= SetPanel("GridCards", fit.Scale, fit.Scrolls ? ScrollBarVisibility.Visible : ScrollBarVisibility.Hidden, HorizontalAlignment.Center);
+        }
+        // Natural sizes are read from the previous layout pass; settle with a few follow-up passes.
+        if (changed && _layoutPasses < 3)
+        {
+            _layoutPasses++;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(ApplyLayout));
+        }
+        else
+            _layoutPasses = 0;
+    }
+
+    /// <summary>Height of the tallest card including its margin, unscaled.</summary>
+    private double NaturalCellHeight()
+    {
+        double max = 0;
+        for (int i = 0; i < CardsHost.Items.Count; i++)
+            if (CardsHost.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement fe)
+                max = Math.Max(max, fe.DesiredSize.Height);
+        return Math.Ceiling(max);
+    }
+
+    private bool SetPanel(string panelKey, double scale, ScrollBarVisibility scroll, HorizontalAlignment align)
+    {
+        bool changed = false;
+        var panel = (ItemsPanelTemplate)FindResource(panelKey);
+        if (!ReferenceEquals(CardsHost.ItemsPanel, panel))
+        {
+            CardsHost.ItemsPanel = panel;
+            changed = true;
+        }
+        double current = CardsHost.LayoutTransform is ScaleTransform st ? st.ScaleX : 1;
+        if (Math.Abs(current - scale) > 0.0005)
+        {
+            CardsHost.LayoutTransform = Math.Abs(scale - 1) < 1e-9 ? Transform.Identity : new ScaleTransform(scale, scale);
+            // Ideal text formatting scales cleanly; Display mode is sharper only at 1:1.
+            TextOptions.SetTextFormattingMode(CardsHost, Math.Abs(scale - 1) < 1e-9 ? TextFormattingMode.Display : TextFormattingMode.Ideal);
+            changed = true;
+        }
+        if (Scroller.VerticalScrollBarVisibility != scroll)
+        {
+            Scroller.VerticalScrollBarVisibility = scroll;
+            changed = true;
+        }
+        CardsHost.HorizontalAlignment = align;
+        return changed;
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -70,6 +158,11 @@ public partial class MainWindow : Window
         if (e.Key == Key.F11)
         {
             ToggleFullscreen();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            _vm.Layout = LayoutFit.Next(_vm.Layout);
             e.Handled = true;
         }
         else if (e.Key == Key.Escape && _fullscreen)
@@ -178,7 +271,7 @@ public partial class MainWindow : Window
             return;
         _vm.Ticked -= OnTickForScreenshot;
         // Let layout and rendering catch up with the last update before capturing.
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() =>
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
         {
             try
             {

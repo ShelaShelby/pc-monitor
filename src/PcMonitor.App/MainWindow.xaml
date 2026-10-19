@@ -13,6 +13,14 @@
         <local:InvertBoolConverter x:Key="Invert" />
         <local:EqualsConverter x:Key="Equals" />
 
+        <!-- Auto layout: wrap unscaled cards. Scaled layouts: uniform grid, scaled by MainWindow.ApplyLayout. -->
+        <ItemsPanelTemplate x:Key="WrapCards">
+            <WrapPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="GridCards">
+            <UniformGrid Columns="{Binding GridColumns}" VerticalAlignment="Top" />
+        </ItemsPanelTemplate>
+
         <DataTemplate x:Key="HeroTemplate" DataType="{x:Type vm:MetricViewModel}">
             <StackPanel Margin="0,0,12,0">
                 <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" FontSize="14" />
@@ -23,14 +31,14 @@
                 <TextBlock Text="{Binding Reason}" Style="{StaticResource Caption}" TextWrapping="Wrap"
                            Visibility="{Binding HasReason, Converter={StaticResource BoolToVis}}" />
                 <TextBlock Text="{Binding MinMax}" Style="{StaticResource Caption}" />
-                <c:Sparkline Height="56" Margin="0,6,0,0" Points="{Binding History}" Stroke="{Binding SparkBrush}"
+                <c:Sparkline Height="{Binding DataContext.SparkHeight, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,6,0,0" Points="{Binding History}" Stroke="{Binding SparkBrush}" Unit="{Binding ValueUnit}"
                              Minimum="{Binding RangeMin}" Maximum="{Binding RangeMax}" />
             </StackPanel>
         </DataTemplate>
 
         <DataTemplate DataType="{x:Type vm:CardViewModel}">
             <Border Width="{Binding DataContext.CardWidth, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                    Margin="8" Padding="18,14" CornerRadius="10"
+                    Margin="{Binding DataContext.CardMargin, RelativeSource={RelativeSource AncestorType=Window}}" Padding="{Binding DataContext.CardPadding, RelativeSource={RelativeSource AncestorType=Window}}" CornerRadius="10"
                     Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1">
                 <StackPanel>
                     <DockPanel LastChildFill="True">
@@ -39,7 +47,7 @@
                                    Margin="12,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" />
                     </DockPanel>
 
-                    <Grid Margin="0,8,0,4">
+                    <Grid Margin="{Binding DataContext.HeroMargin, RelativeSource={RelativeSource AncestorType=Window}}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
@@ -55,7 +63,7 @@
                     <ItemsControl ItemsSource="{Binding Rows}" Margin="0,6,0,0" Grid.IsSharedSizeScope="True" Focusable="False">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:MetricViewModel}">
-                                <Grid Margin="0,2" ToolTip="{Binding Reason}">
+                                <Grid Margin="{Binding DataContext.RowMargin, RelativeSource={RelativeSource AncestorType=Window}}" ToolTip="{Binding Reason}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" SharedSizeGroup="Label" />
                                         <ColumnDefinition Width="*" />
@@ -83,7 +91,7 @@
                         <Border.Visibility>
                             <MultiBinding Converter="{x:Static local:AllTrueToVisibility.Instance}">
                                 <Binding Path="HasSpecs" />
-                                <Binding Path="DataContext.ShowSpecs" RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
+                                <Binding Path="DataContext.SpecsVisible" RelativeSource="{RelativeSource AncestorType=Window}" />
                             </MultiBinding>
                         </Border.Visibility>
                         <ItemsControl ItemsSource="{Binding Specs}" Grid.IsSharedSizeScope="True" Focusable="False">
@@ -122,6 +130,13 @@
                     <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
                     <CheckBox Content="Always on top" IsChecked="{Binding AlwaysOnTop}" />
                     <CheckBox Content="Show specs" IsChecked="{Binding ShowSpecs}" />
+                    <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Layout (L)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="LayoutBox" Width="130" VerticalAlignment="Center" Focusable="False"
+                              ItemsSource="{Binding LayoutOptions}" DisplayMemberPath="Name" SelectedValuePath="Mode"
+                              SelectedValue="{Binding Layout}" />
+                    <CheckBox Content="Compact" IsChecked="{Binding Compact}" />
+                    <TextBlock Text="│" Style="{StaticResource Caption}" Margin="8,0" VerticalAlignment="Center" />
                     <Button Style="{StaticResource DarkButton}" Content="Reset min/max" Command="{Binding ResetMinMaxCommand}" />
                     <Button Style="{StaticResource DarkButton}" Content="Fullscreen (F11)" Click="OnFullscreenClick" />
                 </WrapPanel>
@@ -154,13 +169,7 @@
         </Border>
 
         <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8">
-            <ItemsControl x:Name="CardsHost" ItemsSource="{Binding Cards}" Focusable="False">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-            </ItemsControl>
+            <ItemsControl x:Name="CardsHost" ItemsSource="{Binding Cards}" Focusable="False" ItemsPanel="{StaticResource WrapCards}" />
         </ScrollViewer>
     </DockPanel>
 </Window>

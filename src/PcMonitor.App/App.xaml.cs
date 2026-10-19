@@ -15,11 +15,14 @@ public partial class App : Application
         int Ticks,
         double? Width,
         double? Height,
-        bool ShowSpecs);
+        bool ShowSpecs,
+        LayoutMode? Layout,
+        bool Compact);
 
     internal static Options ParseArgs(string[] args)
     {
-        bool fake = false, noPawn = false, specs = false;
+        bool fake = false, noPawn = false, specs = false, compact = false;
+        LayoutMode? layout = null;
         string? shot = null;
         int ticks = 70;
         double? w = null, h = null;
@@ -32,6 +35,20 @@ public partial class App : Application
                 case "--fake": fake = true; break;
                 case "--fake-no-pawnio": fake = true; noPawn = true; break;
                 case "--show-specs": specs = true; break;
+                case "--compact": compact = true; break;
+                case "--layout" when next is not null:
+                    // fit, auto, 2, 3, 4
+                    layout = next.ToLowerInvariant() switch
+                    {
+                        "fit" => LayoutMode.Fit,
+                        "auto" => LayoutMode.Auto,
+                        "2" => LayoutMode.Columns2,
+                        "3" => LayoutMode.Columns3,
+                        "4" => LayoutMode.Columns4,
+                        _ => null,
+                    };
+                    i++;
+                    break;
                 case "--screenshot" when next is not null: shot = next; i++; break;
                 case "--ticks" when next is not null: ticks = int.Parse(next, CultureInfo.InvariantCulture); i++; break;
                 case "--size" when next is not null:
@@ -44,7 +61,7 @@ public partial class App : Application
                 case "--settings" when next is not null: SettingsStore.FilePath = Path.GetFullPath(next); i++; break;
             }
         }
-        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs);
+        return new Options(fake, noPawn, shot, Math.Max(1, ticks), w, h, specs, layout, compact);
     }
 
     protected override void OnStartup(StartupEventArgs e)

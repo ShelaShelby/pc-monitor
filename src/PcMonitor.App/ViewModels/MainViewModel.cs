@@ -54,7 +54,65 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public double CardWidth { get => _cardWidth; set => Set(ref _cardWidth, value); }
 
-    public bool ShowSpecs { get => _showSpecs; set => Set(ref _showSpecs, value); }
+    public bool ShowSpecs { get => _showSpecs; set { if (Set(ref _showSpecs, value)) OnPropertyChanged(nameof(SpecsVisible)); } }
+
+    /// <summary>Specs are shown when "Show specs" is on and Compact is off.</summary>
+    public bool SpecsVisible => _showSpecs && !Compact;
+
+    public sealed record LayoutOption(LayoutMode Mode, string Name);
+
+    public IReadOnlyList<LayoutOption> LayoutOptions { get; } = new[]
+    {
+        new LayoutOption(LayoutMode.Fit, "Fit to window"),
+        new LayoutOption(LayoutMode.Columns2, "2 columns"),
+        new LayoutOption(LayoutMode.Columns3, "3 columns"),
+        new LayoutOption(LayoutMode.Columns4, "4 columns"),
+        new LayoutOption(LayoutMode.Auto, "Auto (wrap)"),
+    };
+
+    public LayoutMode Layout
+    {
+        get => _settings.Layout;
+        set
+        {
+            if (value == _settings.Layout || !Enum.IsDefined(value))
+                return;
+            _settings.Layout = value;
+            OnPropertyChanged();
+            SettingsStore.Save(_settings);
+        }
+    }
+
+    public bool Compact
+    {
+        get => _settings.Compact;
+        set
+        {
+            if (value == _settings.Compact)
+                return;
+            _settings.Compact = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SpecsVisible));
+            OnPropertyChanged(nameof(CardMargin));
+            OnPropertyChanged(nameof(CardPadding));
+            OnPropertyChanged(nameof(HeroMargin));
+            OnPropertyChanged(nameof(RowMargin));
+            OnPropertyChanged(nameof(SparkHeight));
+            SettingsStore.Save(_settings);
+        }
+    }
+
+    public double CardMarginSize => Compact ? 4 : 8;
+    public System.Windows.Thickness CardMargin => new(CardMarginSize);
+    public System.Windows.Thickness CardPadding => Compact ? new(14, 8, 14, 8) : new(18, 14, 18, 14);
+    public System.Windows.Thickness HeroMargin => Compact ? new(0, 2, 0, 0) : new(0, 8, 0, 4);
+    public System.Windows.Thickness RowMargin => Compact ? new(0, 0, 0, 0) : new(0, 2, 0, 2);
+    public double SparkHeight => Compact ? 40 : 56;
+
+    private int _gridColumns = 3;
+
+    /// <summary>Columns of the uniform grid in the scaled layouts.</summary>
+    public int GridColumns { get => _gridColumns; set => Set(ref _gridColumns, value); }
 
     public double[] Intervals => AppSettings.AllowedIntervals;
 

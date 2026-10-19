@@ -179,7 +179,8 @@ public sealed class FakeSensorProvider : ISensorProvider
             new SpecLine("Modules", "2 × 16 GB DDR5"),
             new SpecLine("Speed", "6000 MT/s (configured)"),
             new SpecLine("Slots", "2 of 4 used"),
-        }),
+        }.Concat(RamLabels.For(new[] { new MemoryStick("DIMM 1", "P0 CHANNEL A"), new MemoryStick("DIMM 1", "P0 CHANNEL B") })
+            .Select(label => new SpecLine(label, "16 GB DDR5 (simulated)"))).ToArray()),
         new PartSpecs(PartKind.DriveC, new[] { new SpecLine("Model", "Samsung SSD 990 PRO 2TB"), new SpecLine("Bus", "NVMe") }),
         new PartSpecs(PartKind.DriveD, new[] { new SpecLine("Model", "WD_BLACK SN850X 2000GB"), new SpecLine("Bus", "NVMe") }),
         new PartSpecs(PartKind.Motherboard, new[] { new SpecLine("Board", "Simulated B650"), new SpecLine("BIOS", "1.0") }),
