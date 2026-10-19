@@ -1,0 +1,124 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore pc-monitor.sln
+
+      - name: Build
+        run: dotnet build pc-monitor.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/PcMonitor.Core.Tests -c Release --no-build --logger "trx;LogFileName=tests.trx" --results-directory artifacts/test-results
+
+      - name: Publish single-file exe
+        run: dotnet publish src/PcMonitor.App/PcMonitor.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o artifacts/publish
+
+      - name: Check exe
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts/publish | Format-Table Name, Length
+          $exe = "artifacts/publish/pc-monitor.exe"
+          if (-not (Test-Path $exe)) { throw "pc-monitor.exe missing" }
+          $extra = Get-ChildItem artifacts/publish -File | Where-Object { $_.Extension -in ".dll", ".json" }
+          if ($extra) { throw "publish is not single-file: $($extra.Name -join ', ')" }
+
+      - name: Screenshots (FakeSensorProvider)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "artifacts/publish/pc-monitor.exe").Path
+          New-Item -ItemType Directory -Force artifacts/shots | Out-Null
+          $shots = (Resolve-Path "artifacts/shots").Path
+          $runs = @(
+            @{ name = "fake-1920x1080"; args = @("--fake-no-pawnio", "--size", "1920x1080", "--ticks", "70") },
+            @{ name = "fake-specs-1280x1000"; args = @("--fake", "--show-specs", "--size", "1280x1000", "--ticks", "70") }
+          )
+          foreach ($r in $runs) {
+            $png = Join-Path $shots "$($r.name).png"
+            $log = Join-Path $shots "$($r.name).log"
+            $all = $r.args + @("--screenshot", $png, "--log", $log, "--settings", (Join-Path $shots "settings-$($r.name).json"))
+            $p = Start-Process -FilePath $exe -ArgumentList $all -PassThru
+            if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "$($r.name): timed out" }
+            if (Test-Path $log) { Get-Content $log }
+            if (-not (Test-Path $png)) { throw "$($r.name): no screenshot (exit $($p.ExitCode))" }
+            Write-Host "$($r.name): $((Get-Item $png).Length) bytes"
+          }
+
+      - name: Smoke test (real LibreHardwareMonitor provider on the CI VM)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = (Resolve-Path "artifacts/publish/pc-monitor.exe").Path
+          $shots = (Resolve-Path "artifacts/shots").Path
+          $png = Join-Path $shots "real-ci-vm.png"
+          $log = Join-Path $shots "real-ci-vm.log"
+          $p = Start-Process -FilePath $exe -ArgumentList @("--screenshot", $png, "--ticks", "3", "--size", "1600x1000", "--log", $log, "--settings", (Join-Path $shots "settings-real.json")) -PassThru
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); throw "real provider timed out" }
+          if (Test-Path $log) { Get-Content $log }
+          if (-not (Test-Path $png)) { throw "real provider: no screenshot (exit $($p.ExitCode))" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pc-monitor-${{ github.sha }}
+          path: |
+            artifacts/publish/pc-monitor.exe
+            artifacts/shots
+            artifacts/test-results
+
+      - name: Push screenshots to ci-screenshots branch
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          cd artifacts/shots
+          git init -q
+          git checkout -q -b ci-screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Screenshots for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screenshots
+
+      - name: Publish release "latest"
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cp artifacts/publish/pc-monitor.exe pc-monitor.exe
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete latest --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          git push --delete origin refs/tags/latest 2>/dev/null || true
+          gh release create latest pc-monitor.exe \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "latest" \
+            --notes "pc-monitor 0.1 built from ${GITHUB_SHA}. Windows 11 x64, self-contained single exe (asks for administrator rights). See README.md and OWNER-TODO.md." \
+            --latest
+          gh release view latest --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,assets
